@@ -20,6 +20,7 @@ import (
 	"github.com/MKlolbullen/rustygo/internal/config"
 	"github.com/MKlolbullen/rustygo/internal/model"
 	"github.com/MKlolbullen/rustygo/internal/pipeline"
+	"github.com/MKlolbullen/rustygo/internal/privesc"
 	"github.com/MKlolbullen/rustygo/internal/windows"
 )
 
