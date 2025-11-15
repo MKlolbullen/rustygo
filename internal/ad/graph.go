@@ -51,11 +51,17 @@ func ParseBloodHoundGraph(data []byte) (*model.ADGraph, error) {
 		}
 
 		high := isHighValueNode(n.Label, name, n.Properties)
+		state := ""
+		if high {
+			state = "high_value"
+		}
+
 		graph.Nodes = append(graph.Nodes, model.ADGraphNode{
 			ID:        id,
 			Label:     n.Label,
 			Name:      name,
 			HighValue: high,
+			State:     state,
 		})
 	}
 
