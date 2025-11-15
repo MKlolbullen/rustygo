@@ -69,8 +69,9 @@ func New(cfg *config.Config, dataDir string) *Server {
 func (s *Server) routes() {
 	// Full recon APIs
 	s.mux.HandleFunc("/api/run/full", s.handleRunFull)
-
+	
 	// Job APIs
+    
 	s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
 	s.mux.HandleFunc("/api/jobs", s.handleJobs)
 	s.mux.HandleFunc("/api/jobs/", s.handleJob)
@@ -88,12 +89,13 @@ func (s *Server) routes() {
 	// LDAP & BloodHound
 	s.mux.HandleFunc("/api/ad/ldap", s.handleADLDAP)
 	s.mux.HandleFunc("/api/ad/bloodhound/summary", s.handleBloodHoundSummary)
-
+	s.mux.HandleFunc("/api/ad/bloodhound/graph", s.handleBloodHoundGraph)
 	// Beacon generation
 	s.mux.HandleFunc("/api/beacon/havoc", s.handleBeaconHavoc)
 	s.mux.HandleFunc("/api/beacon/empire", s.handleBeaconEmpire)
 	s.mux.HandleFunc("/api/beacon/adaptix", s.handleBeaconAdaptix)
-
+	// Host
+	s.mux.HandleFunc("/api/host/profile/analyze", s.handleHostProfileAnalyze)
 	// GUI
 	s.mux.HandleFunc("/", s.handleIndex)
 }
