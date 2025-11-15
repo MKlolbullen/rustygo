@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MKlolbullen/rustygo/internal/ad"
 	"github.com/MKlolbullen/rustygo/internal/c2"
 	"github.com/MKlolbullen/rustygo/internal/config"
 	"github.com/MKlolbullen/rustygo/internal/model"
@@ -78,9 +79,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/results/", s.handleGetResult)
 
 	// Windows / AD enumeration
-	s.mux.HandleFunc("/api/enum/smb", s.handleEnumSMB)
-	s.mux.HandleFunc("/api/enum/netbios", s.handleEnumNetBIOS)
-	s.mux.HandleFunc("/api/enum/netexec", s.handleEnumNetexec)
+	s.mux.HandleFunc("/api/enum/smb", s.handleEnumSMB)           // enum4linux-ng
+	s.mux.HandleFunc("/api/enum/netbios", s.handleEnumNetBIOS)   // nbtstat/nbtscan
+	s.mux.HandleFunc("/api/enum/netexec", s.handleEnumNetexec)   // netexec
+	s.mux.HandleFunc("/api/enum/smbshares", s.handleEnumSMBShares) // smbclient/smbmap shares
+
+	// LDAP & BloodHound
+	s.mux.HandleFunc("/api/ad/ldap", s.handleADLDAP)
+	s.mux.HandleFunc("/api/ad/bloodhound/summary", s.handleBloodHoundSummary)
 
 	// Beacon generation
 	s.mux.HandleFunc("/api/beacon/havoc", s.handleBeaconHavoc)
@@ -454,6 +460,120 @@ func (s *Server) handleEnumNetexec(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
+// POST /api/enum/smbshares { "host": "...", "username": "...", "password": "...", "domain": "...", "tool": "smbclient|smbmap" }
+func (s *Server) handleEnumSMBShares(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Host     string `json:"host"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Domain   string `json:"domain"`
+		Tool     string `json:"tool"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Host == "" {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	eng := windows.NewSMBEnumerator(s.cfg)
+	res, err := eng.EnumShares(ctx, windows.SMBEnumOptions{
+		Host:     body.Host,
+		Username: body.Username,
+		Password: body.Password,
+		Domain:   body.Domain,
+		Tool:     body.Tool,
+	})
+	if err != nil {
+		http.Error(w, "smb shares error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+// ---------- LDAP & BloodHound ----------
+
+// POST /api/ad/ldap { "host": "...", "base_dn": "...", "filter": "(objectClass=user)", "attrs": "cn,sAMAccountName", "bind_dn": "...", "password": "...", "use_ldaps": true }
+func (s *Server) handleADLDAP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Host      string `json:"host"`
+		BaseDN    string `json:"base_dn"`
+		Filter    string `json:"filter"`
+		Attrs     string `json:"attrs"`
+		BindDN    string `json:"bind_dn"`
+		Password  string `json:"password"`
+		UseLDAPS  bool   `json:"use_ldaps"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Host == "" || body.BaseDN == "" {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	var attrs []string
+	if strings.TrimSpace(body.Attrs) != "" {
+		for _, a := range strings.Split(body.Attrs, ",") {
+			a = strings.TrimSpace(a)
+			if a != "" {
+				attrs = append(attrs, a)
+			}
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	engine := ad.NewLDAPEngine(s.cfg)
+	res, err := engine.Search(ctx, ad.LDAPOptions{
+		Host:       body.Host,
+		BaseDN:     body.BaseDN,
+		Filter:     body.Filter,
+		Attributes: attrs,
+		BindDN:     body.BindDN,
+		Password:   body.Password,
+		UseLDAPS:   body.UseLDAPS,
+	})
+	if err != nil {
+		http.Error(w, "ldap error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+// POST /api/ad/bloodhound/summary { "json": "<full bloodhound json string>" }
+func (s *Server) handleBloodHoundSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		JSON string `json:"json"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.JSON) == "" {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	engine := ad.NewBloodHoundEngine()
+	summary, err := engine.SummarizeJSONBytes([]byte(body.JSON))
+	if err != nil {
+		http.Error(w, "bloodhound parse error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(summary)
+}
+
 // ---------- Beacon handlers ----------
 
 // POST /api/beacon/havoc { "args": "--windows-demon ..." }
@@ -579,7 +699,7 @@ const indexHTML = `<!DOCTYPE html>
 </head>
 <body>
   <h1>rustygo</h1>
-  <p>Multi-phase recon framework (Go + Rust) with C2 beacon helpers. For authorized testing only.</p>
+  <p>Multi-phase recon & operator console (Go + Rust). For authorized testing only.</p>
 
   <div class="row">
     <div class="col">
@@ -614,6 +734,14 @@ const indexHTML = `<!DOCTYPE html>
         <input id="netexec-target" placeholder="target host" />
         <input id="netexec-flags" placeholder="extra flags (optional)" />
         <button onclick="enumNetexec()">Run Netexec</button>
+
+        <h3>SMB Shares (smbclient/smbmap)</h3>
+        <input id="smbshares-host" placeholder="host or IP" />
+        <input id="smbshares-user" placeholder="username (optional)" />
+        <input id="smbshares-pass" placeholder="password (optional)" type="password" />
+        <input id="smbshares-domain" placeholder="domain (optional)" />
+        <input id="smbshares-tool" placeholder="tool (smbclient|smbmap, optional)" />
+        <button onclick="enumSMBShares()">Enum SMB Shares</button>
       </div>
 
       <div class="card">
@@ -650,6 +778,23 @@ const indexHTML = `<!DOCTYPE html>
           <thead><tr><th>File</th><th>Actions</th></tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+
+      <div class="card">
+        <h2>Directory / LDAP & BloodHound</h2>
+        <h3>ldapsearch</h3>
+        <input id="ldap-host" placeholder="ldap.example.com:389" />
+        <input id="ldap-basedn" placeholder="DC=example,DC=com" />
+        <input id="ldap-filter" placeholder="(objectClass=user)" />
+        <input id="ldap-attrs" placeholder="cn,sAMAccountName,memberOf (optional)" />
+        <input id="ldap-binddn" placeholder="bind DN (optional)" />
+        <input id="ldap-password" type="password" placeholder="password (optional)" />
+        <label><input type="checkbox" id="ldap-use-ldaps" /> use LDAPS</label>
+        <button onclick="runLDAP()">Run ldapsearch</button>
+
+        <h3>BloodHound JSON summary</h3>
+        <textarea id="bh-json" style="height:120px;" placeholder="Paste BloodHound JSON with nodes/edges here"></textarea>
+        <button onclick="bloodhoundSummary()">Summarize BloodHound JSON</button>
       </div>
 
       <div class="card">
@@ -789,7 +934,7 @@ async function enumSMB() {
   });
   const data = await res.json();
   document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-  document.getElementById('summary').innerHTML = '<p><strong>SMB enum for:</strong> ' + host + '</p>';
+  document.getElementById('summary').innerHTML = '<p><strong>enum4linux-ng host:</strong> ' + data.host + '</p>';
 }
 
 async function enumNetBIOS() {
@@ -828,6 +973,35 @@ async function enumNetexec() {
   document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
   let html = '<p><strong>Netexec module:</strong> ' + data.module + '</p>';
   html += '<p><strong>Target:</strong> ' + data.host + '</p>';
+  document.getElementById('summary').innerHTML = html;
+}
+
+async function enumSMBShares() {
+  const host = document.getElementById('smbshares-host').value.trim();
+  const username = document.getElementById('smbshares-user').value.trim();
+  const password = document.getElementById('smbshares-pass').value.trim();
+  const domain = document.getElementById('smbshares-domain').value.trim();
+  const tool = document.getElementById('smbshares-tool').value.trim();
+  if (!host) return;
+  const res = await fetch('/api/enum/smbshares', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host, username, password, domain, tool })
+  });
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  let html = '<p><strong>SMB shares on:</strong> ' + data.host + ' (tool: ' + data.tool + ')</p>';
+  if (data.shares && data.shares.length) {
+    html += '<table><thead><tr><th>Share</th><th>Comment</th><th>R</th><th>W</th></tr></thead><tbody>';
+    data.shares.forEach(sh => {
+      html += '<tr><td>' + sh.name + '</td><td>' + (sh.comment || '') + '</td><td>' +
+              (sh.read ? '✔' : '') + '</td><td>' + (sh.write ? '✔' : '') + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  } else if (data.raw_output) {
+    html += '<p>No parsed shares; see raw output.</p>';
+  }
   document.getElementById('summary').innerHTML = html;
 }
 
@@ -879,7 +1053,56 @@ async function beaconAdaptix() {
   const data = await res.json();
   document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
   document.getElementById('summary').innerHTML =
-    '<p><strong>Adaptix agent ID:</strong> ' + (data.id || '') + '<br/><strong>Download URL:</strong> ' + (data.url || '') + '</p>';
+    '<p><strong>Adaptix agent ID:</strong> ' + (data.id || '') +
+    '<br/><strong>Download URL:</strong> ' + (data.url || '') + '</p>';
+}
+
+// LDAP & BloodHound helpers
+async function runLDAP() {
+  const host = document.getElementById('ldap-host').value.trim();
+  const base_dn = document.getElementById('ldap-basedn').value.trim();
+  const filter = document.getElementById('ldap-filter').value.trim();
+  const attrs = document.getElementById('ldap-attrs').value.trim();
+  const bind_dn = document.getElementById('ldap-binddn').value.trim();
+  const password = document.getElementById('ldap-password').value.trim();
+  const use_ldaps = document.getElementById('ldap-use-ldaps').checked;
+  if (!host || !base_dn) return;
+  const res = await fetch('/api/ad/ldap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host, base_dn, filter, attrs, bind_dn, password, use_ldaps })
+  });
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  let html = '<p><strong>LDAP host:</strong> ' + data.host + '</p>';
+  html += '<p><strong>Base DN:</strong> ' + data.base_dn + '</p>';
+  html += '<p><strong>Filter:</strong> ' + data.filter + '</p>';
+  html += '<p><strong>Entries:</strong> ' + data.count + '</p>';
+  document.getElementById('summary').innerHTML = html;
+}
+
+async function bloodhoundSummary() {
+  const raw = document.getElementById('bh-json').value.trim();
+  if (!raw) return;
+  const res = await fetch('/api/ad/bloodhound/summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: raw })
+  });
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  let html = '<p><strong>BloodHound summary:</strong> ' +
+             data.node_count + ' nodes, ' + data.edge_count + ' edges</p>';
+  if (data.node_types) {
+    html += '<p><strong>Node types:</strong></p><ul>';
+    for (const t in data.node_types) {
+      html += '<li>' + t + ': ' + data.node_types[t] + '</li>';
+    }
+    html += '</ul>';
+  }
+  document.getElementById('summary').innerHTML = html;
 }
 
 // Summary renderer for ReconResult or Job{result}
@@ -889,7 +1112,6 @@ function renderSummary(obj) {
     res = obj.result;
   }
   if (!res || !res.domain) {
-    // not a ReconResult
     return;
   }
   const subs = res.subdomains || [];
