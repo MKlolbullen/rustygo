@@ -18,10 +18,12 @@ import (
 	"github.com/MKlolbullen/rustygo/internal/ad"
 	"github.com/MKlolbullen/rustygo/internal/c2"
 	"github.com/MKlolbullen/rustygo/internal/config"
+	"github.com/MKlolbullen/rustygo/internal/credstore"
 	"github.com/MKlolbullen/rustygo/internal/hoststore"
 	"github.com/MKlolbullen/rustygo/internal/model"
 	"github.com/MKlolbullen/rustygo/internal/pipeline"
 	"github.com/MKlolbullen/rustygo/internal/privesc"
+	"github.com/MKlolbullen/rustygo/internal/sessionstore"
 	"github.com/MKlolbullen/rustygo/internal/windows"
 )
 
@@ -55,6 +57,8 @@ type Server struct {
 	jobs map[string]*Job
 
 	hostStore *hoststore.Store
+	credStore *credstore.Store
+	sessStore *sessionstore.Store
 }
 
 func New(cfg *config.Config, dataDir string) *Server {
@@ -65,6 +69,8 @@ func New(cfg *config.Config, dataDir string) *Server {
 		dataDir:   dataDir,
 		jobs:      make(map[string]*Job),
 		hostStore: hoststore.New(dataDir),
+		credStore: credstore.New(dataDir),
+		sessStore: sessionstore.New(dataDir),
 	}
 	s.routes()
 	return s
@@ -75,7 +81,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/run/full", s.handleRunFull)
 
 	// Job APIs
-	s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
+_s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
 	s.mux.HandleFunc("/api/jobs", s.handleJobs)
 	s.mux.HandleFunc("/api/jobs/", s.handleJob)
 
@@ -98,6 +104,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/host/profile/analyze", s.handleHostProfileAnalyze)
 	s.mux.HandleFunc("/api/host/profile/save", s.handleHostProfileSave)
 	s.mux.HandleFunc("/api/host/profiles", s.handleHostProfileList)
+
+	// Credentials & sessions
+	s.mux.HandleFunc("/api/credentials/import", s.handleCredentialsImport)
+	s.mux.HandleFunc("/api/credentials", s.handleCredentialsList)
+	s.mux.HandleFunc("/api/sessions/import", s.handleSessionsImport)
+	s.mux.HandleFunc("/api/sessions", s.handleSessionsList)
 
 	// Beacon generation
 	s.mux.HandleFunc("/api/beacon/havoc", s.handleBeaconHavoc)
@@ -793,6 +805,148 @@ func findMatchingHostRecord(n *model.ADGraphNode, recs []*model.HostRecord) *mod
 	return nil
 }
 
+// ---------- Credentials & sessions ----------
+
+// POST /api/credentials/import
+// Body: { "engagement": "CORP.LOCAL", "credentials": [ { "account":"user@DOMAIN", "type":"ntlm_hash", "secret":"...", "host":"dc01", "tags":["kerberoast"] }, ... ] }
+func (s *Server) handleCredentialsImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Engagement  string              `json:"engagement"`
+		Credentials []model.Credential  `json:"credentials"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if len(body.Credentials) == 0 {
+		http.Error(w, "no credentials provided", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now().UTC()
+	saved := make([]*model.Credential, 0, len(body.Credentials))
+
+	for i := range body.Credentials {
+		c := &body.Credentials[i]
+		if strings.TrimSpace(c.Account) == "" {
+			continue
+		}
+		if strings.TrimSpace(c.Engagement) == "" {
+			c.Engagement = body.Engagement
+		}
+		if strings.TrimSpace(c.Engagement) == "" {
+			c.Engagement = "default"
+		}
+		if c.ID == "" {
+			c.ID = randomID()
+		}
+		if c.FirstSeen.IsZero() {
+			c.FirstSeen = now
+		}
+		if c.LastUpdated.IsZero() {
+			c.LastUpdated = now
+		}
+		if err := s.credStore.Save(c); err != nil {
+			log.Printf("credential save error: %v", err)
+			continue
+		}
+		saved = append(saved, c)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(saved)
+}
+
+// GET /api/credentials?engagement=CORP.LOCAL
+func (s *Server) handleCredentialsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	eng := r.URL.Query().Get("engagement")
+	creds, err := s.credStore.List(eng)
+	if err != nil {
+		http.Error(w, "list error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(creds)
+}
+
+// POST /api/sessions/import
+// Body: { "engagement":"CORP.LOCAL", "sessions":[{"user":"user@DOM","host":"dc01","source_tool":"external"}...] }
+func (s *Server) handleSessionsImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Engagement string          `json:"engagement"`
+		Sessions   []model.Session `json:"sessions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if len(body.Sessions) == 0 {
+		http.Error(w, "no sessions provided", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now().UTC()
+	saved := make([]*model.Session, 0, len(body.Sessions))
+
+	for i := range body.Sessions {
+		sess := &body.Sessions[i]
+		if strings.TrimSpace(sess.User) == "" || strings.TrimSpace(sess.Host) == "" {
+			continue
+		}
+		if strings.TrimSpace(sess.Engagement) == "" {
+			sess.Engagement = body.Engagement
+		}
+		if strings.TrimSpace(sess.Engagement) == "" {
+			sess.Engagement = "default"
+		}
+		if sess.ID == "" {
+			sess.ID = randomID()
+		}
+		if sess.FirstSeen.IsZero() {
+			sess.FirstSeen = now
+		}
+		if sess.LastSeen.IsZero() {
+			sess.LastSeen = now
+		}
+		if err := s.sessStore.Save(sess); err != nil {
+			log.Printf("session save error: %v", err)
+			continue
+		}
+		saved = append(saved, sess)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(saved)
+}
+
+// GET /api/sessions?engagement=CORP.LOCAL
+func (s *Server) handleSessionsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	eng := r.URL.Query().Get("engagement")
+	sessions, err := s.sessStore.List(eng)
+	if err != nil {
+		http.Error(w, "list error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sessions)
+}
+
 // ---------- Beacon handlers ----------
 
 // POST /api/beacon/havoc { "args": "--windows-demon ..." }
@@ -1035,6 +1189,36 @@ const indexHTML = `<!DOCTYPE html>
         <div id="graph-container" style="margin-top:8px; border:1px solid #1f2937; border-radius:8px; padding:4px; max-height:400px; overflow:auto;">
           <svg id="graph-svg" width="600" height="400"></svg>
         </div>
+      </div>
+
+      <div class="card">
+        <h2>Compromised accounts</h2>
+        <input id="accounts-engagement" placeholder="engagement/scope (e.g. CORP.LOCAL)" />
+        <button onclick="loadCompromisedAccounts()">Load compromised accounts</button>
+        <table id="accounts-table">
+          <thead><tr><th>Account</th><th>Types</th><th>Cred count</th><th>Hosts</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Captured credentials</h2>
+        <input id="creds-engagement" placeholder="engagement/scope (e.g. CORP.LOCAL)" />
+        <button onclick="loadCredentials()">Load credentials</button>
+        <table id="creds-table">
+          <thead><tr><th>Account</th><th>Type</th><th>Host</th><th>Tags</th><th>First seen</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>User sessions</h2>
+        <input id="sessions-engagement" placeholder="engagement/scope (e.g. CORP.LOCAL)" />
+        <button onclick="loadSessions()">Load sessions</button>
+        <table id="sessions-table">
+          <thead><tr><th>User</th><th>Host</th><th>First seen</th><th>Last seen</th><th>Source</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
 
       <div class="card">
@@ -1497,7 +1681,6 @@ function drawGraph(graph) {
     svg.appendChild(group);
   });
 
-  // Update summary
   const hv = nodes.filter(n => n.state === "high_value" || n.state === "owned_high_value" || n.high_value);
   const owned = nodes.filter(n => n.state === "owned" || n.state === "owned_high_value" || n.owned);
   const ownedHV = nodes.filter(n => n.state === "owned_high_value");
@@ -1519,6 +1702,127 @@ function drawGraph(graph) {
           '<span style="color:#dc2626;">red</span> = owned & high-value, ' +
           'blue = other.</p>';
 
+  document.getElementById('summary').innerHTML = html;
+}
+
+// Credentials & sessions GUI
+
+async function loadCredentials() {
+  const eng = document.getElementById('creds-engagement').value.trim();
+  let url = '/api/credentials';
+  if (eng) url += '?engagement=' + encodeURIComponent(eng);
+  const res = await fetch(url);
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  const tbody = document.querySelector('#creds-table tbody');
+  tbody.innerHTML = '';
+  data.forEach(c => {
+    const tr = document.createElement('tr');
+    const accountTd = document.createElement('td');
+    accountTd.textContent = c.account || '';
+    const typeTd = document.createElement('td');
+    typeTd.textContent = c.type || '';
+    const hostTd = document.createElement('td');
+    hostTd.textContent = c.host || '';
+    const tagsTd = document.createElement('td');
+    tagsTd.textContent = (c.tags || []).join(', ');
+    const firstSeenTd = document.createElement('td');
+    firstSeenTd.textContent = c.first_seen || '';
+    tr.appendChild(accountTd);
+    tr.appendChild(typeTd);
+    tr.appendChild(hostTd);
+    tr.appendChild(tagsTd);
+    tr.appendChild(firstSeenTd);
+    tbody.appendChild(tr);
+  });
+
+  let html = '<p><strong>Captured credentials:</strong> ' + data.length + '</p>';
+  document.getElementById('summary').innerHTML = html;
+}
+
+async function loadCompromisedAccounts() {
+  const eng = document.getElementById('accounts-engagement').value.trim();
+  let url = '/api/credentials';
+  if (eng) url += '?engagement=' + encodeURIComponent(eng);
+  const res = await fetch(url);
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  const byAccount = {};
+  data.forEach(c => {
+    const acct = c.account || '(unknown)';
+    if (!byAccount[acct]) {
+      byAccount[acct] = {
+        types: new Set(),
+        count: 0,
+        hosts: new Set()
+      };
+    }
+    byAccount[acct].count++;
+    if (c.type) byAccount[acct].types.add(c.type);
+    if (c.host) byAccount[acct].hosts.add(c.host);
+  });
+
+  const tbody = document.querySelector('#accounts-table tbody');
+  tbody.innerHTML = '';
+
+  Object.keys(byAccount).forEach(acct => {
+    const entry = byAccount[acct];
+    const tr = document.createElement('tr');
+    const accountTd = document.createElement('td');
+    accountTd.textContent = acct;
+    const typesTd = document.createElement('td');
+    typesTd.textContent = Array.from(entry.types).join(', ');
+    const countTd = document.createElement('td');
+    countTd.textContent = String(entry.count);
+    const hostsTd = document.createElement('td');
+    hostsTd.textContent = Array.from(entry.hosts).join(', ');
+    tr.appendChild(accountTd);
+    tr.appendChild(typesTd);
+    tr.appendChild(countTd);
+    tr.appendChild(hostsTd);
+    tbody.appendChild(tr);
+  });
+
+  let html = '<p><strong>Compromised accounts:</strong> ' + Object.keys(byAccount).length + '</p>';
+  document.getElementById('summary').innerHTML = html;
+}
+
+async function loadSessions() {
+  const eng = document.getElementById('sessions-engagement').value.trim();
+  let url = '/api/sessions';
+  if (eng) url += '?engagement=' + encodeURIComponent(eng);
+  const res = await fetch(url);
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  const tbody = document.querySelector('#sessions-table tbody');
+  tbody.innerHTML = '';
+  data.forEach(s => {
+    const tr = document.createElement('tr');
+    const userTd = document.createElement('td');
+    userTd.textContent = s.user || '';
+    const hostTd = document.createElement('td');
+    hostTd.textContent = s.host || '';
+    const firstTd = document.createElement('td');
+    firstTd.textContent = s.first_seen || '';
+    const lastTd = document.createElement('td');
+    lastTd.textContent = s.last_seen || '';
+    const srcTd = document.createElement('td');
+    srcTd.textContent = s.source_tool || '';
+    tr.appendChild(userTd);
+    tr.appendChild(hostTd);
+    tr.appendChild(firstTd);
+    tr.appendChild(lastTd);
+    tr.appendChild(srcTd);
+    tbody.appendChild(tr);
+  });
+
+  let html = '<p><strong>User sessions:</strong> ' + data.length + '</p>';
   document.getElementById('summary').innerHTML = html;
 }
 
