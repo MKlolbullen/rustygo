@@ -69,9 +69,8 @@ func New(cfg *config.Config, dataDir string) *Server {
 func (s *Server) routes() {
 	// Full recon APIs
 	s.mux.HandleFunc("/api/run/full", s.handleRunFull)
-	
+
 	// Job APIs
-    
 	s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
 	s.mux.HandleFunc("/api/jobs", s.handleJobs)
 	s.mux.HandleFunc("/api/jobs/", s.handleJob)
@@ -80,22 +79,25 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/results", s.handleListResults)
 	s.mux.HandleFunc("/api/results/", s.handleGetResult)
 
-	// Windows / AD enumeration
-	s.mux.HandleFunc("/api/enum/smb", s.handleEnumSMB)           // enum4linux-ng
-	s.mux.HandleFunc("/api/enum/netbios", s.handleEnumNetBIOS)   // nbtstat/nbtscan
-	s.mux.HandleFunc("/api/enum/netexec", s.handleEnumNetexec)   // netexec
+	// Windows / AD / network enumeration
+	s.mux.HandleFunc("/api/enum/smb", s.handleEnumSMB)             // enum4linux-ng
+	s.mux.HandleFunc("/api/enum/netbios", s.handleEnumNetBIOS)     // nbtstat/nbtscan
+	s.mux.HandleFunc("/api/enum/netexec", s.handleEnumNetexec)     // netexec
 	s.mux.HandleFunc("/api/enum/smbshares", s.handleEnumSMBShares) // smbclient/smbmap shares
 
 	// LDAP & BloodHound
 	s.mux.HandleFunc("/api/ad/ldap", s.handleADLDAP)
 	s.mux.HandleFunc("/api/ad/bloodhound/summary", s.handleBloodHoundSummary)
 	s.mux.HandleFunc("/api/ad/bloodhound/graph", s.handleBloodHoundGraph)
+
+	// Host profile & privesc hints
+	s.mux.HandleFunc("/api/host/profile/analyze", s.handleHostProfileAnalyze)
+
 	// Beacon generation
 	s.mux.HandleFunc("/api/beacon/havoc", s.handleBeaconHavoc)
 	s.mux.HandleFunc("/api/beacon/empire", s.handleBeaconEmpire)
 	s.mux.HandleFunc("/api/beacon/adaptix", s.handleBeaconAdaptix)
-	// Host
-	s.mux.HandleFunc("/api/host/profile/analyze", s.handleHostProfileAnalyze)
+
 	// GUI
 	s.mux.HandleFunc("/", s.handleIndex)
 }
@@ -145,7 +147,7 @@ func (s *Server) handleRunFull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // ---------- Job handling (async full recon) ----------
@@ -181,7 +183,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	go s.runJob(job.ID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(job)
+	_ = json.NewEncoder(w).Encode(job)
 }
 
 func (s *Server) runJob(id string) {
@@ -257,7 +259,7 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(out)
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +282,7 @@ func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(j)
+	_ = json.NewEncoder(w).Encode(j)
 }
 
 // ---------- Saved result handling ----------
@@ -317,7 +319,7 @@ func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]interface{}{})
+			_ = json.NewEncoder(w).Encode([]interface{}{})
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -334,7 +336,7 @@ func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
 		out = append(out, item{File: e.Name()})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(out)
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
@@ -359,10 +361,10 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	w.Header().Set("Content-Type", "application/json")
-	io.Copy(w, f)
+	_, _ = io.Copy(w, f)
 }
 
-// ---------- Windows / AD enumeration handlers ----------
+// ---------- Windows / AD / network enumeration handlers ----------
 
 // POST /api/enum/smb { "host": "x", "opts": "-U,-G" }
 func (s *Server) handleEnumSMB(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +401,7 @@ func (s *Server) handleEnumSMB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // POST /api/enum/netbios { "ip": "x.x.x.x" }
@@ -426,7 +428,7 @@ func (s *Server) handleEnumNetBIOS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // POST /api/enum/netexec { "module": "smb", "target": "host", "flags": "--shares" }
@@ -460,7 +462,7 @@ func (s *Server) handleEnumNetexec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // POST /api/enum/smbshares { "host": "...", "username": "...", "password": "...", "domain": "...", "tool": "smbclient|smbmap" }
@@ -497,7 +499,7 @@ func (s *Server) handleEnumSMBShares(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // ---------- LDAP & BloodHound ----------
@@ -509,13 +511,13 @@ func (s *Server) handleADLDAP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Host      string `json:"host"`
-		BaseDN    string `json:"base_dn"`
-		Filter    string `json:"filter"`
-		Attrs     string `json:"attrs"`
-		BindDN    string `json:"bind_dn"`
-		Password  string `json:"password"`
-		UseLDAPS  bool   `json:"use_ldaps"`
+		Host     string `json:"host"`
+		BaseDN   string `json:"base_dn"`
+		Filter   string `json:"filter"`
+		Attrs    string `json:"attrs"`
+		BindDN   string `json:"bind_dn"`
+		Password string `json:"password"`
+		UseLDAPS bool   `json:"use_ldaps"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Host == "" || body.BaseDN == "" {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -550,7 +552,7 @@ func (s *Server) handleADLDAP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // POST /api/ad/bloodhound/summary { "json": "<full bloodhound json string>" }
@@ -574,7 +576,62 @@ func (s *Server) handleBloodHoundSummary(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(summary)
+	_ = json.NewEncoder(w).Encode(summary)
+}
+
+// POST /api/ad/bloodhound/graph { "json": "<full bloodhound JSON>" }
+func (s *Server) handleBloodHoundGraph(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		JSON string `json:"json"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.JSON) == "" {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	graph, err := ad.ParseBloodHoundGraph([]byte(body.JSON))
+	if err != nil {
+		http.Error(w, "bloodhound graph parse error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(graph)
+}
+
+// ---------- Host profile & privesc ----------
+
+// POST /api/host/profile/analyze
+// Body: { "profile": { HostProfile ... } }
+func (s *Server) handleHostProfileAnalyze(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Profile *model.HostProfile `json:"profile"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Profile == nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	hints := privesc.AnalyzeHost(body.Profile)
+
+	resp := struct {
+		Profile *model.HostProfile  `json:"profile"`
+		Hints   []model.PrivescHint `json:"hints"`
+	}{
+		Profile: body.Profile,
+		Hints:   hints,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // ---------- Beacon handlers ----------
@@ -602,7 +659,7 @@ func (s *Server) handleBeaconHavoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"output": out})
+	_ = json.NewEncoder(w).Encode(map[string]string{"output": out})
 }
 
 // POST /api/beacon/empire { raw Empire config JSON }
@@ -629,7 +686,7 @@ func (s *Server) handleBeaconEmpire(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"listener": listener,
 		"stager":   stager,
 	})
@@ -660,62 +717,10 @@ func (s *Server) handleBeaconAdaptix(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"id":  id,
 		"url": url,
 	})
-}
-// POST /api/host/profile/analyze
-// Body: { "profile": {HostProfile...} }
-func (s *Server) handleHostProfileAnalyze(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Profile *model.HostProfile `json:"profile"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Profile == nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	hints := privesc.AnalyzeHost(body.Profile)
-
-	resp := struct {
-		Profile *model.HostProfile `json:"profile"`
-		Hints   []model.PrivescHint `json:"hints"`
-	}{
-		Profile: body.Profile,
-		Hints:   hints,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// POST /api/ad/bloodhound/graph { "json": "<full bloodhound JSON>" }
-func (s *Server) handleBloodHoundGraph(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		JSON string `json:"json"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.JSON) == "" {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	graph, err := ad.ParseBloodHoundGraph([]byte(body.JSON))
-	if err != nil {
-		http.Error(w, "bloodhound graph parse error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(graph)
 }
 
 // ---------- GUI ----------
@@ -726,7 +731,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, indexHTML)
+	_, _ = io.WriteString(w, indexHTML)
 }
 
 const indexHTML = `<!DOCTYPE html>
@@ -848,8 +853,25 @@ const indexHTML = `<!DOCTYPE html>
         <button onclick="runLDAP()">Run ldapsearch</button>
 
         <h3>BloodHound JSON summary</h3>
-        <textarea id="bh-json" style="height:120px;" placeholder="Paste BloodHound JSON with nodes/edges here"></textarea>
+        <textarea id="bh-json" style="height:80px;" placeholder="Paste BloodHound JSON with nodes/edges here"></textarea>
         <button onclick="bloodhoundSummary()">Summarize BloodHound JSON</button>
+      </div>
+
+      <div class="card">
+        <h2>Host profile & privesc hints</h2>
+        <p>Paste a HostProfile JSON from an agent or C2 and analyze for privesc hints.</p>
+        <textarea id="host-profile-json" style="width:100%;height:120px;" placeholder='{"hostname":"dc01","os_family":"windows","os_version":"10.0","local_users":[...],...}'></textarea>
+        <button onclick="analyzeHostProfile()">Analyze host profile</button>
+      </div>
+
+      <div class="card">
+        <h2>AD Graph visualization</h2>
+        <p>Paste BloodHound JSON and render a simplified relationship graph. High-value nodes are highlighted.</p>
+        <textarea id="bh-json-graph" style="width:100%;height:120px;" placeholder="Paste BloodHound JSON with nodes/edges here"></textarea>
+        <button onclick="renderBHGraph()">Render AD graph</button>
+        <div id="graph-container" style="margin-top:8px; border:1px solid #1f2937; border-radius:8px; padding:4px; max-height:400px; overflow:auto;">
+          <svg id="graph-svg" width="600" height="400"></svg>
+        </div>
       </div>
 
       <div class="card">
@@ -1155,6 +1177,128 @@ async function bloodhoundSummary() {
     for (const t in data.node_types) {
       html += '<li>' + t + ': ' + data.node_types[t] + '</li>';
     }
+    html += '</ul>';
+  }
+  document.getElementById('summary').innerHTML = html;
+}
+
+// Host profile & privesc
+async function analyzeHostProfile() {
+  const raw = document.getElementById('host-profile-json').value.trim();
+  if (!raw) return;
+  let profile;
+  try {
+    profile = JSON.parse(raw);
+  } catch (e) {
+    alert('HostProfile is not valid JSON');
+    return;
+  }
+  const res = await fetch('/api/host/profile/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile })
+  });
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  let html = '<p><strong>Host:</strong> ' + (data.profile.hostname || '') +
+             ' (' + (data.profile.os_family || '') + ' ' + (data.profile.os_version || '') + ')</p>';
+  if (data.hints && data.hints.length) {
+    html += '<p><strong>Privesc hints:</strong> ' + data.hints.length + '</p><ul>';
+    data.hints.forEach(h => {
+      html += '<li><strong>[' + h.severity.toUpperCase() + '][' + h.category + ']</strong> ' +
+              h.title + '<br/><span style="opacity:0.8;">' + h.description + '</span></li>';
+    });
+    html += '</ul>';
+  } else {
+    html += '<p>No privesc hints found by current heuristics.</p>';
+  }
+  document.getElementById('summary').innerHTML = html;
+}
+
+// AD graph visualization
+async function renderBHGraph() {
+  const raw = document.getElementById('bh-json-graph').value.trim();
+  if (!raw) return;
+  const res = await fetch('/api/ad/bloodhound/graph', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: raw })
+  });
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  drawGraph(data);
+}
+
+function drawGraph(graph) {
+  const svg = document.getElementById('graph-svg');
+  const width = svg.clientWidth || 600;
+  const height = svg.clientHeight || 400;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  if (!graph || !graph.nodes || !graph.nodes.length) {
+    return;
+  }
+
+  const nodes = graph.nodes;
+  const edges = graph.edges || [];
+  const cx = width / 2, cy = height / 2;
+  const radius = Math.min(width, height) / 2 - 40;
+
+  // Position nodes on a circle
+  nodes.forEach((n, i) => {
+    const angle = 2 * Math.PI * i / nodes.length;
+    n._x = cx + radius * Math.cos(angle);
+    n._y = cy + radius * Math.sin(angle);
+  });
+
+  // Draw edges
+  edges.forEach(e => {
+    const src = nodes.find(n => n.id === e.source);
+    const dst = nodes.find(n => n.id === e.target);
+    if (!src || !dst) return;
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", src._x);
+    line.setAttribute("y1", src._y);
+    line.setAttribute("x2", dst._x);
+    line.setAttribute("y2", dst._y);
+    line.setAttribute("stroke", "#4b5563");
+    line.setAttribute("stroke-width", "1");
+    svg.appendChild(line);
+  });
+
+  // Draw nodes
+  nodes.forEach(n => {
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", n._x);
+    circle.setAttribute("cy", n._y);
+    circle.setAttribute("r", 10);
+    circle.setAttribute("fill", n.high_value ? "#f97316" : "#1d4ed8");
+    group.appendChild(circle);
+
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", n._x + 12);
+    text.setAttribute("y", n._y + 4);
+    text.setAttribute("font-size", "10");
+    text.setAttribute("fill", "#e5e7eb");
+    text.textContent = n.name || n.label || n.id;
+    group.appendChild(text);
+
+    svg.appendChild(group);
+  });
+
+  // Update summary
+  let html = '<p><strong>AD graph:</strong> ' + nodes.length + ' nodes, ' +
+             edges.length + ' edges.</p>';
+  const hv = nodes.filter(n => n.high_value);
+  if (hv.length) {
+    html += '<p><strong>High-value nodes:</strong></p><ul>';
+    hv.forEach(n => {
+      html += '<li>' + (n.name || n.id) + ' [' + (n.label || '') + ']</li>';
+    });
     html += '</ul>';
   }
   document.getElementById('summary').innerHTML = html;
