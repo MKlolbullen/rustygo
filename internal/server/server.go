@@ -18,6 +18,7 @@ import (
 	"github.com/MKlolbullen/rustygo/internal/ad"
 	"github.com/MKlolbullen/rustygo/internal/c2"
 	"github.com/MKlolbullen/rustygo/internal/config"
+	"github.com/MKlolbullen/rustygo/internal/hoststore"
 	"github.com/MKlolbullen/rustygo/internal/model"
 	"github.com/MKlolbullen/rustygo/internal/pipeline"
 	"github.com/MKlolbullen/rustygo/internal/privesc"
@@ -52,15 +53,18 @@ type Server struct {
 
 	mu   sync.Mutex
 	jobs map[string]*Job
+
+	hostStore *hoststore.Store
 }
 
 func New(cfg *config.Config, dataDir string) *Server {
 	mux := http.NewServeMux()
 	s := &Server{
-		cfg:     cfg,
-		mux:     mux,
-		dataDir: dataDir,
-		jobs:    make(map[string]*Job),
+		cfg:       cfg,
+		mux:       mux,
+		dataDir:   dataDir,
+		jobs:      make(map[string]*Job),
+		hostStore: hoststore.New(dataDir),
 	}
 	s.routes()
 	return s
@@ -90,8 +94,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/ad/bloodhound/summary", s.handleBloodHoundSummary)
 	s.mux.HandleFunc("/api/ad/bloodhound/graph", s.handleBloodHoundGraph)
 
-	// Host profile & privesc hints
+	// Host profiles & privesc
 	s.mux.HandleFunc("/api/host/profile/analyze", s.handleHostProfileAnalyze)
+	s.mux.HandleFunc("/api/host/profile/save", s.handleHostProfileSave)
+	s.mux.HandleFunc("/api/host/profiles", s.handleHostProfileList)
 
 	// Beacon generation
 	s.mux.HandleFunc("/api/beacon/havoc", s.handleBeaconHavoc)
@@ -579,14 +585,15 @@ func (s *Server) handleBloodHoundSummary(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(summary)
 }
 
-// POST /api/ad/bloodhound/graph { "json": "<full bloodhound JSON>" }
+// POST /api/ad/bloodhound/graph { "json": "<full bloodhound JSON>", "engagement": "corp.local" }
 func (s *Server) handleBloodHoundGraph(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
 	var body struct {
-		JSON string `json:"json"`
+		JSON       string `json:"json"`
+		Engagement string `json:"engagement"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.JSON) == "" {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -599,11 +606,13 @@ func (s *Server) handleBloodHoundGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.linkGraphWithHosts(graph, body.Engagement)
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(graph)
 }
 
-// ---------- Host profile & privesc ----------
+// ---------- Host profiles & privesc ----------
 
 // POST /api/host/profile/analyze
 // Body: { "profile": { HostProfile ... } }
@@ -632,6 +641,156 @@ func (s *Server) handleHostProfileAnalyze(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// POST /api/host/profile/save
+// Body: { "engagement": "corp.local", "profile": {...}, "owned": true, "owner_note": "initial foothold" }
+func (s *Server) handleHostProfileSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Engagement string             `json:"engagement"`
+		Profile    *model.HostProfile `json:"profile"`
+		Owned      bool               `json:"owned"`
+		OwnerNote  string             `json:"owner_note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Profile == nil || body.Profile.Hostname == "" {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now().UTC()
+	hints := privesc.AnalyzeHost(body.Profile)
+
+	rec := &model.HostRecord{
+		Engagement:  body.Engagement,
+		Profile:     body.Profile,
+		Hints:       hints,
+		Owned:       body.Owned,
+		OwnerNote:   body.OwnerNote,
+		FirstSeen:   now,
+		LastUpdated: now,
+	}
+
+	if err := s.hostStore.Save(rec); err != nil {
+		http.Error(w, "save error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rec)
+}
+
+// GET /api/host/profiles?engagement=corp.local
+func (s *Server) handleHostProfileList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	eng := r.URL.Query().Get("engagement")
+	recs, err := s.hostStore.List(eng)
+	if err != nil {
+		http.Error(w, "list error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(recs)
+}
+
+// linkGraphWithHosts annotates ADGraph nodes with host/owned state based on
+// stored HostRecords for the given engagement.
+func (s *Server) linkGraphWithHosts(graph *model.ADGraph, engagement string) {
+	if graph == nil || strings.TrimSpace(engagement) == "" {
+		return
+	}
+	recs, err := s.hostStore.List(engagement)
+	if err != nil {
+		log.Printf("hostStore.List error in linkGraphWithHosts: %v", err)
+		return
+	}
+	if len(recs) == 0 {
+		return
+	}
+
+	for i := range graph.Nodes {
+		n := &graph.Nodes[i]
+		match := findMatchingHostRecord(n, recs)
+		if match == nil {
+			// ensure state at least reflects high_value
+			if n.State == "" && n.HighValue {
+				n.State = "high_value"
+			}
+			continue
+		}
+
+		if match.Profile != nil {
+			if n.Hostname == "" {
+				n.Hostname = match.Profile.Hostname
+			}
+			if n.Domain == "" {
+				n.Domain = match.Profile.Domain
+			}
+		}
+		if match.Owned {
+			n.Owned = true
+		}
+
+		// derive final state
+		switch {
+		case n.HighValue && n.Owned:
+			n.State = "owned_high_value"
+		case n.Owned:
+			n.State = "owned"
+		case n.HighValue:
+			n.State = "high_value"
+		default:
+			n.State = ""
+		}
+	}
+}
+
+func findMatchingHostRecord(n *model.ADGraphNode, recs []*model.HostRecord) *model.HostRecord {
+	if n == nil {
+		return nil
+	}
+	nn := strings.ToLower(strings.TrimSpace(n.Name))
+	if nn == "" {
+		return nil
+	}
+
+	// Extract a "short name" before '.' or '@' or space.
+	delims := []string{".", "@", " "}
+	short := nn
+	for _, d := range delims {
+		if idx := strings.Index(nn, d); idx > 0 {
+			short = nn[:idx]
+			break
+		}
+	}
+
+	for _, rec := range recs {
+		if rec.Profile == nil {
+			continue
+		}
+		host := strings.ToLower(strings.TrimSpace(rec.Profile.Hostname))
+		if host == "" {
+			continue
+		}
+		if short == host {
+			return rec
+		}
+		dom := strings.ToLower(strings.TrimSpace(rec.Profile.Domain))
+		if dom != "" {
+			fqdn := host + "." + dom
+			if nn == fqdn {
+				return rec
+			}
+		}
+	}
+
+	return nil
 }
 
 // ---------- Beacon handlers ----------
@@ -859,14 +1018,18 @@ const indexHTML = `<!DOCTYPE html>
 
       <div class="card">
         <h2>Host profile & privesc hints</h2>
-        <p>Paste a HostProfile JSON from an agent or C2 and analyze for privesc hints.</p>
+        <input id="host-engagement" placeholder="engagement/scope (e.g. example.com or CORP.LOCAL)" />
+        <label><input type="checkbox" id="host-owned" /> mark host as owned</label>
+        <p>Paste a HostProfile JSON from an agent or C2 and analyze/store privesc hints.</p>
         <textarea id="host-profile-json" style="width:100%;height:120px;" placeholder='{"hostname":"dc01","os_family":"windows","os_version":"10.0","local_users":[...],...}'></textarea>
-        <button onclick="analyzeHostProfile()">Analyze host profile</button>
+        <button onclick="analyzeHostProfile()">Analyze host profile (no save)</button>
+        <button onclick="saveHostProfile()">Save host profile</button>
       </div>
 
       <div class="card">
         <h2>AD Graph visualization</h2>
-        <p>Paste BloodHound JSON and render a simplified relationship graph. High-value nodes are highlighted.</p>
+        <input id="graph-engagement" placeholder="engagement/scope (optional, to color owned hosts)" />
+        <p>Paste BloodHound JSON and render a simplified relationship graph. High-value and owned nodes are highlighted.</p>
         <textarea id="bh-json-graph" style="width:100%;height:120px;" placeholder="Paste BloodHound JSON with nodes/edges here"></textarea>
         <button onclick="renderBHGraph()">Render AD graph</button>
         <div id="graph-container" style="margin-top:8px; border:1px solid #1f2937; border-radius:8px; padding:4px; max-height:400px; overflow:auto;">
@@ -1216,14 +1379,49 @@ async function analyzeHostProfile() {
   document.getElementById('summary').innerHTML = html;
 }
 
+async function saveHostProfile() {
+  const raw = document.getElementById('host-profile-json').value.trim();
+  const engagement = document.getElementById('host-engagement').value.trim();
+  const owned = document.getElementById('host-owned').checked;
+  if (!raw) return;
+  let profile;
+  try {
+    profile = JSON.parse(raw);
+  } catch (e) {
+    alert('HostProfile is not valid JSON');
+    return;
+  }
+  const res = await fetch('/api/host/profile/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ engagement, profile, owned })
+  });
+  const data = await res.json();
+  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+
+  let html = '<p><strong>Saved host:</strong> ' + (data.profile && data.profile.hostname ? data.profile.hostname : '') + '</p>';
+  html += '<p><strong>Engagement:</strong> ' + (data.engagement || '') + '</p>';
+  if (data.owned) html += '<p>This host is marked as <strong>owned</strong>.</p>';
+  if (data.hints && data.hints.length) {
+    html += '<p><strong>Privesc hints:</strong> ' + data.hints.length + '</p><ul>';
+    data.hints.forEach(h => {
+      html += '<li><strong>[' + h.severity.toUpperCase() + '][' + h.category + ']</strong> ' +
+              h.title + '</li>';
+    });
+    html += '</ul>';
+  }
+  document.getElementById('summary').innerHTML = html;
+}
+
 // AD graph visualization
 async function renderBHGraph() {
   const raw = document.getElementById('bh-json-graph').value.trim();
+  const engagement = document.getElementById('graph-engagement').value.trim();
   if (!raw) return;
   const res = await fetch('/api/ad/bloodhound/graph', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ json: raw })
+    body: JSON.stringify({ json: raw, engagement })
   });
   const data = await res.json();
   document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
@@ -1268,15 +1466,24 @@ function drawGraph(graph) {
     svg.appendChild(line);
   });
 
-  // Draw nodes
+  // Draw nodes with state-based colors
   nodes.forEach(n => {
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+    let fill = "#1d4ed8"; // default: blue
+    if (n.state === "owned_high_value") {
+      fill = "#dc2626"; // red
+    } else if (n.state === "owned") {
+      fill = "#22c55e"; // green
+    } else if (n.state === "high_value" || n.high_value) {
+      fill = "#f97316"; // orange
+    }
 
     const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     circle.setAttribute("cx", n._x);
     circle.setAttribute("cy", n._y);
     circle.setAttribute("r", 10);
-    circle.setAttribute("fill", n.high_value ? "#f97316" : "#1d4ed8");
+    circle.setAttribute("fill", fill);
     group.appendChild(circle);
 
     const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -1291,16 +1498,27 @@ function drawGraph(graph) {
   });
 
   // Update summary
+  const hv = nodes.filter(n => n.state === "high_value" || n.state === "owned_high_value" || n.high_value);
+  const owned = nodes.filter(n => n.state === "owned" || n.state === "owned_high_value" || n.owned);
+  const ownedHV = nodes.filter(n => n.state === "owned_high_value");
+
   let html = '<p><strong>AD graph:</strong> ' + nodes.length + ' nodes, ' +
              edges.length + ' edges.</p>';
-  const hv = nodes.filter(n => n.high_value);
-  if (hv.length) {
-    html += '<p><strong>High-value nodes:</strong></p><ul>';
-    hv.forEach(n => {
+  html += '<p><strong>High-value nodes:</strong> ' + hv.length +
+          ' | <strong>Owned nodes:</strong> ' + owned.length +
+          ' | <strong>Owned & high-value:</strong> ' + ownedHV.length + '</p>';
+  if (ownedHV.length) {
+    html += '<p><strong>Owned high-value nodes:</strong></p><ul>';
+    ownedHV.forEach(n => {
       html += '<li>' + (n.name || n.id) + ' [' + (n.label || '') + ']</li>';
     });
     html += '</ul>';
   }
+  html += '<p>Legend: <span style="color:#22c55e;">green</span> = owned, ' +
+          '<span style="color:#f97316;">orange</span> = high-value, ' +
+          '<span style="color:#dc2626;">red</span> = owned & high-value, ' +
+          'blue = other.</p>';
+
   document.getElementById('summary').innerHTML = html;
 }
 
