@@ -665,6 +665,58 @@ func (s *Server) handleBeaconAdaptix(w http.ResponseWriter, r *http.Request) {
 		"url": url,
 	})
 }
+// POST /api/host/profile/analyze
+// Body: { "profile": {HostProfile...} }
+func (s *Server) handleHostProfileAnalyze(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Profile *model.HostProfile `json:"profile"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Profile == nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	hints := privesc.AnalyzeHost(body.Profile)
+
+	resp := struct {
+		Profile *model.HostProfile `json:"profile"`
+		Hints   []model.PrivescHint `json:"hints"`
+	}{
+		Profile: body.Profile,
+		Hints:   hints,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// POST /api/ad/bloodhound/graph { "json": "<full bloodhound JSON>" }
+func (s *Server) handleBloodHoundGraph(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		JSON string `json:"json"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.JSON) == "" {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	graph, err := ad.ParseBloodHoundGraph([]byte(body.JSON))
+	if err != nil {
+		http.Error(w, "bloodhound graph parse error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(graph)
+}
 
 // ---------- GUI ----------
 
