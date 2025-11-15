@@ -342,13 +342,13 @@ rustygo is intentionally modular and still evolving. Some things on the radar:
 
 ### Internal / AD / Identity
 
-* [ ] Host profiles:
+* [X] Host profiles:
 
   * Unified “host profile” schema (processes, users, AV/EDR, network).
-* [ ] Privilege escalation hinting:
+* [X] Privilege escalation hinting:
 
   * Windows and Linux privesc *enumeration* (no auto-exploit).
-* [ ] AD graph:
+* [X] AD graph:
 
   * Imported BloodHound data visualized as a relationship graph.
   * High-value accounts / Tier 0 nodes flagged.
