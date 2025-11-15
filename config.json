@@ -1,0 +1,11 @@
+{
+  "tool_paths": {
+    "subfinder": "/usr/local/bin/subfinder",
+    "assetfinder": "/usr/local/bin/assetfinder"
+  },
+  "api_keys": {
+    "shodan": "SHODAN_API_KEY_HERE",
+    "censys_id": "CENSYS_ID",
+    "censys_secret": "CENSYS_SECRET"
+  }
+}
