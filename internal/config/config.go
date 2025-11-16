@@ -68,9 +68,20 @@ type APIKeys struct {
 
 // Config is the top-level configuration for rustygo.
 type Config struct {
-	ToolPaths ToolPaths `json:"tool_paths"`
-	APIKeys   APIKeys   `json:"api_keys"`
+    ToolPaths ToolPaths  `json:"tool_paths"`
+    APIKeys   APIKeys    `json:"api_keys"`
+    Scripts   []ScriptConfig `json:"scripts,omitempty"`
 }
+
+type ScriptConfig struct {
+    Name        string   `json:"name"`                  // id used from CLI/UI
+    Path        string   `json:"path"`                  // path to the script file
+    Interpreter string   `json:"interpreter,omitempty"` // default: "ruby"
+    Args        []string `json:"args,omitempty"`        // default args before user args
+    Description string   `json:"description,omitempty"`
+    Tags        []string `json:"tags,omitempty"`
+}
+
 func (c *Config) fillFromEnv() {
     // Shodan
     if c.APIKeys.Shodan == "" {
