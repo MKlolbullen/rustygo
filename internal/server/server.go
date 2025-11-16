@@ -25,6 +25,7 @@ import (
 	"github.com/MKlolbullen/rustygo/internal/privesc"
 	"github.com/MKlolbullen/rustygo/internal/sessionstore"
 	"github.com/MKlolbullen/rustygo/internal/windows"
+	"github.com/MKlolbullen/rustygo/internal/web"
 )
 
 type JobStatus string
@@ -47,19 +48,23 @@ type Job struct {
 	CreatedAt time.Time          `json:"created_at"`
 	UpdatedAt time.Time          `json:"updated_at"`
 }
-
 type Server struct {
-	cfg     *config.Config
-	mux     *http.ServeMux
-	dataDir string
+    cfg     *config.Config
+    mux     *http.ServeMux
+    dataDir string
 
-	mu   sync.Mutex
-	jobs map[string]*Job
+    mu    sync.Mutex
+    jobs  map[string]*Job
+
+    creds []model.Credential
+    hosts []model.HostProfile
+    hints []model.PrivescHint
 
 	hostStore *hoststore.Store
 	credStore *credstore.Store
 	sessStore *sessionstore.Store
 }
+
 
 func New(cfg *config.Config, dataDir string) *Server {
 	mux := http.NewServeMux()
@@ -81,7 +86,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/run/full", s.handleRunFull)
 
 	// Job APIs
-_s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
+	_s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
 	s.mux.HandleFunc("/api/jobs", s.handleJobs)
 	s.mux.HandleFunc("/api/jobs/", s.handleJob)
 
@@ -110,7 +115,8 @@ _s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
 	s.mux.HandleFunc("/api/credentials", s.handleCredentialsList)
 	s.mux.HandleFunc("/api/sessions/import", s.handleSessionsImport)
 	s.mux.HandleFunc("/api/sessions", s.handleSessionsList)
-
+	// Credentials
+    s.mux.HandleFunc("/api/creds", s.handleCreds)
 	// Beacon generation
 	s.mux.HandleFunc("/api/beacon/havoc", s.handleBeaconHavoc)
 	s.mux.HandleFunc("/api/beacon/empire", s.handleBeaconEmpire)
