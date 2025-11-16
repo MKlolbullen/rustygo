@@ -16,7 +16,7 @@ type DNSRecord struct {
 	Value []string `json:"value"`
 }
 
-// HTTPService represents an HTTP(S) service discovered on a host.
+// HTTPService describes an HTTP endpoint discovered during recon.
 type HTTPService struct {
 	URL          string            `json:"url"`
 	StatusCode   int               `json:"status_code"`
@@ -25,7 +25,7 @@ type HTTPService struct {
 	Headers      map[string]string `json:"headers,omitempty"`
 }
 
-// Port represents a network port discovered during scanning.
+// Port describes a network port discovered during scanning.
 type Port struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -44,7 +44,7 @@ type VulnFinding struct {
 	DetectedAt time.Time `json:"detected_at"`
 }
 
-// ReconResult bundles the main recon phases for a domain.
+// ReconResult aggregates the full recon output for a given domain.
 type ReconResult struct {
 	Domain     string        `json:"domain"`
 	StartedAt  time.Time     `json:"started_at"`
@@ -55,63 +55,18 @@ type ReconResult struct {
 	HTTP       []HTTPService `json:"http"`
 	Vulns      []VulnFinding `json:"vulns"`
 }
-// HTTPBruteResult represents a single result from ffuf/feroxbuster discovery.
-type HTTPBruteResult struct {
-    Tool       string   `json:"tool"`
-    URL        string   `json:"url"`
-    StatusCode int      `json:"status_code"`
-    Length     int      `json:"length,omitempty"`
-    Words      int      `json:"words,omitempty"`
-    Lines      int      `json:"lines,omitempty"`
-    Method     string   `json:"method,omitempty"`
-    Tags       []string `json:"tags,omitempty"`
-}
 
-// WebTechInfo aggregates technology fingerprinting for a URL.
-type WebTechInfo struct {
-    URL          string                 `json:"url"`
-    Technologies []string               `json:"technologies"`
-    Raw          map[string]interface{} `json:"raw,omitempty"`
-}
-
-// FaviconInfo describes a favicon hash and optional saved path.
-type FaviconInfo struct {
-    URL      string `json:"url"`
-    Hash     string `json:"hash"`
-    IconPath string `json:"icon_path,omitempty"`
-}
-
-// CSPInfo represents a parsed Content-Security-Policy.
-type CSPInfo struct {
-    URL        string              `json:"url"`
-    Directives map[string][]string `json:"directives,omitempty"`
-    Raw        string              `json:"raw,omitempty"`
-}
-
-// NetworkExposure describes output from tools like nextnet.
-type NetworkExposure struct {
-    Target string `json:"target"`
-    Output string `json:"output"`
-}
-// WebScreenshot represents a screenshot plus some metadata for a URL.
-type WebScreenshot struct {
-    URL           string `json:"url"`
-    ScreenshotPath string `json:"screenshot_path"`
-    Title         string `json:"title,omitempty"`
-    FaviconHash   string `json:"favicon_hash,omitempty"`
-}
-
-// Enum4linuxResult contains parsed output from enum4linux-ng.
+// Enum4linuxResult contains the parsed output from enum4linux-ng for a given host.
 type Enum4linuxResult struct {
 	Host string                 `json:"host"`
 	Data map[string]interface{} `json:"data"`
 }
 
-// NetBIOSName is a parsed NetBIOS name.
+// NetBIOSName is a parsed NetBIOS name (from nbtstat/nbtscan).
 type NetBIOSName struct {
 	Name   string `json:"name"`
 	Suffix string `json:"suffix"`
-	Type   string `json:"type"` // UNIQUE/GROUP
+	Type   string `json:"type"` // UNIQUE or GROUP
 }
 
 // NetBIOSInfo aggregates NetBIOS information for a host.
@@ -128,53 +83,117 @@ type NetexecResult struct {
 	Output string `json:"output"`
 }
 
-// LDAPAttribute is a single attribute with multiple values.
-type LDAPAttribute struct {
-	Name   string   `json:"name"`
-	Values []string `json:"values"`
+// HTTPBruteResult represents a single result from ffuf/feroxbuster discovery.
+type HTTPBruteResult struct {
+	Tool       string   `json:"tool"`
+	URL        string   `json:"url"`
+	StatusCode int      `json:"status_code"`
+	Length     int      `json:"length,omitempty"`
+	Words      int      `json:"words,omitempty"`
+	Lines      int      `json:"lines,omitempty"`
+	Method     string   `json:"method,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
-// LDAPEntry represents one LDAP entry from ldapsearch output.
-type LDAPEntry struct {
-	DN         string          `json:"dn"`
-	Attributes []LDAPAttribute `json:"attributes"`
+// WebTechInfo aggregates technology fingerprinting for a URL.
+type WebTechInfo struct {
+	URL          string                 `json:"url"`
+	Technologies []string               `json:"technologies"`
+	Raw          map[string]interface{} `json:"raw,omitempty"`
 }
 
-// LDAPResult encapsulates an ldapsearch query result.
-type LDAPResult struct {
-	Host    string       `json:"host"`
-	BaseDN  string       `json:"base_dn"`
-	Filter  string       `json:"filter"`
-	Count   int          `json:"count"`
-	Entries []LDAPEntry  `json:"entries"`
-	Raw     string       `json:"raw,omitempty"`
+// FaviconInfo describes a favicon hash and optional saved path.
+type FaviconInfo struct {
+	URL      string `json:"url"`
+	Hash     string `json:"hash"`
+	IconPath string `json:"icon_path,omitempty"`
 }
 
-// SMBShare describes a discovered SMB share.
-type SMBShare struct {
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	Read    bool   `json:"read"`
-	Write   bool   `json:"write"`
+// CSPInfo represents a parsed Content-Security-Policy.
+type CSPInfo struct {
+	URL        string              `json:"url"`
+	Directives map[string][]string `json:"directives,omitempty"`
+	Raw        string              `json:"raw,omitempty"`
 }
 
-// SMBEnumResult is the result of SMB share enumeration.
-type SMBEnumResult struct {
-	Host      string     `json:"host"`
-	Tool      string     `json:"tool"`
-	Shares    []SMBShare `json:"shares"`
-	RawOutput string     `json:"raw_output,omitempty"`
+// NetworkExposure describes output from tools like nextnet.
+type NetworkExposure struct {
+	Target string `json:"target"`
+	Output string `json:"output"`
 }
 
-// BloodHoundSummary provides a lightweight summary of a BloodHound JSON export.
-type BloodHoundSummary struct {
-	NodeCount int            `json:"node_count"`
-	EdgeCount int            `json:"edge_count"`
-	NodeTypes map[string]int `json:"node_types"`
+// WebScreenshot represents a screenshot plus some metadata for a URL.
+type WebScreenshot struct {
+	URL            string `json:"url"`
+	ScreenshotPath string `json:"screenshot_path"`
+	Title          string `json:"title,omitempty"`
+	FaviconHash    string `json:"favicon_hash,omitempty"`
 }
 
-// MetasploitCommandResult represents the result of a msfconsole command run.
-type MetasploitCommandResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
+type CredentialType string
+
+const (
+	CredTypePassword CredentialType = "password"
+	CredTypeHash     CredentialType = "hash"
+	CredTypeTicket   CredentialType = "ticket"
+	CredTypeAPIKey   CredentialType = "api_key"
+)
+
+// Credential represents a single credential item discovered/imported.
+type Credential struct {
+	ID        string         `json:"id"`
+	Type      CredentialType `json:"type"`
+	Username  string         `json:"username"`
+	Domain    string         `json:"domain,omitempty"`
+	Secret    string         `json:"secret,omitempty"` // consider masking/redaction in UI
+	Source    string         `json:"source,omitempty"`
+	Host      string         `json:"host,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+	Tags      []string       `json:"tags,omitempty"`
+}
+
+// CredCheckResult represents a credential validity check against a host.
+type CredCheckResult struct {
+	CredentialID string `json:"credential_id"`
+	Host         string `json:"host"`
+	Success      bool   `json:"success"`
+	Mechanism    string `json:"mechanism"`
+	Error        string `json:"error,omitempty"`
+}
+
+// HostProfile represents situational awareness on a compromised host.
+type HostProfile struct {
+	Name           string    `json:"name"`
+	OS             string    `json:"os"`
+	OSVersion      string    `json:"os_version,omitempty"`
+	Domain         string    `json:"domain,omitempty"`
+	IPs            []string  `json:"ips,omitempty"`
+	LocalAdmins    []string  `json:"local_admins,omitempty"`
+	AVProducts     []string  `json:"av_products,omitempty"`
+	LoggedOnUsers  []string  `json:"logged_on_users,omitempty"`
+	IsDomainJoined bool      `json:"is_domain_joined"`
+	Tags           []string  `json:"tags,omitempty"`
+	LastSeen       time.Time `json:"last_seen"`
+}
+
+type PrivescHintSeverity string
+
+const (
+	PrivescLow      PrivescHintSeverity = "low"
+	PrivescMedium   PrivescHintSeverity = "medium"
+	PrivescHigh     PrivescHintSeverity = "high"
+	PrivescCritical PrivescHintSeverity = "critical"
+)
+
+// PrivescHint describes a potential privilege escalation opportunity (enumeration only).
+type PrivescHint struct {
+	Host       string              `json:"host"`
+	ID         string              `json:"id"`
+	Title      string              `json:"title"`
+	Severity   PrivescHintSeverity `json:"severity"`
+	Category   string              `json:"category,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Evidence   string              `json:"evidence,omitempty"`
+	References []string            `json:"references,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
 }
