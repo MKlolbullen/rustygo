@@ -19,6 +19,7 @@ import (
 	"github.com/MKlolbullen/rustygo/internal/config"
 	"github.com/MKlolbullen/rustygo/internal/model"
 	"github.com/MKlolbullen/rustygo/internal/pipeline"
+	"github.com/MKlolbullen/rustygo/internal/scripts"
 	"github.com/MKlolbullen/rustygo/internal/windows"
 )
 
@@ -53,15 +54,18 @@ type Server struct {
 	creds []model.Credential
 	hosts []model.HostProfile
 	hints []model.PrivescHint
+
+	scriptRunner *scripts.Runner
 }
 
 func New(cfg *config.Config, dataDir string) *Server {
 	mux := http.NewServeMux()
 	s := &Server{
-		cfg:     cfg,
-		mux:     mux,
-		dataDir: dataDir,
-		jobs:    make(map[string]*Job),
+		cfg:          cfg,
+		mux:          mux,
+		dataDir:      dataDir,
+		jobs:         make(map[string]*Job),
+		scriptRunner: scripts.NewRunner(cfg),
 	}
 	s.routes()
 	return s
@@ -94,6 +98,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/creds", s.handleCreds)
 	s.mux.HandleFunc("/api/hosts", s.handleHosts)
 	s.mux.HandleFunc("/api/privesc", s.handlePrivesc)
+
+	// Scripts
+	s.mux.HandleFunc("/api/scripts", s.handleScripts)
+	s.mux.HandleFunc("/api/scripts/run", s.handleScriptRun)
 
 	// GUI
 	s.mux.HandleFunc("/", s.handleIndex)
@@ -539,7 +547,7 @@ func (s *Server) handleBeaconAdaptix(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "adaptix login: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	id, url, err := client.GenerateAgent(body.Config)
+	id, urlStr, err := client.GenerateAgent(body.Config)
 	if err != nil {
 		http.Error(w, "adaptix generate: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -547,7 +555,7 @@ func (s *Server) handleBeaconAdaptix(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"id":  id,
-		"url": url,
+		"url": urlStr,
 	})
 }
 
@@ -686,6 +694,57 @@ func (s *Server) handlePrivesc(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// ---------- Scripts ----------
+
+// GET /api/scripts -> list scripts
+func (s *Server) handleScripts(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if s.scriptRunner == nil {
+			http.Error(w, "scripts not configured", http.StatusServiceUnavailable)
+			return
+		}
+		scriptsList := s.scriptRunner.List()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(scriptsList)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// POST /api/scripts/run { "name": "ad_enum_quick", "args": ["--domain", "corp.local"] }
+func (s *Server) handleScriptRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.scriptRunner == nil {
+		http.Error(w, "scripts not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var req model.ScriptRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	res, err := s.scriptRunner.Run(ctx, req.Name, req.Args)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"error":  err.Error(),
+			"result": res,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
 }
 
 // ---------- GUI ----------
@@ -830,6 +889,17 @@ const indexHTML = `<!DOCTYPE html>
           <thead><tr><th>Host</th><th>Severity</th><th>Title</th><th>Category</th></tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+
+      <div class="card">
+        <h2>Scripts</h2>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+          <select id="script-select" style="flex:1;"></select>
+          <button onclick="loadScripts()">Refresh</button>
+        </div>
+        <input id="script-args" placeholder="args (space-separated)" style="width:100%; margin-bottom:8px;" />
+        <button onclick="runScript()">Run selected script</button>
+        <pre id="script-output" style="white-space:pre-wrap; max-height:200px; overflow:auto; margin-top:8px;"></pre>
       </div>
 
       <div class="card">
@@ -1187,6 +1257,68 @@ async function importPrivesc() {
   loadPrivesc();
 }
 
+// Scripts
+async function loadScripts() {
+  const res = await fetch('/api/scripts');
+  const sel = document.getElementById('script-select');
+  sel.innerHTML = '';
+  if (!res.ok) {
+    const opt = document.createElement('option');
+    opt.textContent = 'Scripts not available';
+    opt.value = '';
+    sel.appendChild(opt);
+    return;
+  }
+  const data = await res.json();
+  data.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.name;
+    opt.textContent = s.name + (s.description ? ' — ' + s.description : '');
+    sel.appendChild(opt);
+  });
+}
+
+async function runScript() {
+  const sel = document.getElementById('script-select');
+  const name = sel.value;
+  if (!name) return;
+  const argStr = document.getElementById('script-args').value.trim();
+  let args = [];
+  if (argStr) {
+    args = argStr.split(/\s+/);
+  }
+  document.getElementById('script-output').textContent = 'Running ' + name + '...';
+
+  const res = await fetch('/api/scripts/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, args })
+  });
+
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text);
+    if (data.result) {
+      let out = '';
+      out += 'Error: ' + data.error + '\n\n';
+      const r = data.result;
+      out += 'Exit code: ' + r.exit_code + '\n\n';
+      out += r.stdout || '';
+      document.getElementById('script-output').textContent = out;
+      document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+    } else {
+      const r = data;
+      let out = '';
+      out += 'Exit code: ' + r.exit_code + '\n\n';
+      out += r.stdout || '';
+      document.getElementById('script-output').textContent = out;
+      document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
+    }
+  } catch (e) {
+    document.getElementById('script-output').textContent = text;
+  }
+}
+
 // Summary renderer for ReconResult or Job{result}
 function renderSummary(obj) {
   let res = obj;
@@ -1254,6 +1386,7 @@ loadResults();
 loadCreds();
 loadHosts();
 loadPrivesc();
+loadScripts();
 </script>
 </body>
 </html>`
