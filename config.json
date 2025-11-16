@@ -1,11 +1,76 @@
 {
   "tool_paths": {
     "subfinder": "/usr/local/bin/subfinder",
-    "assetfinder": "/usr/local/bin/assetfinder"
+    "assetfinder": "/usr/local/bin/assetfinder",
+    "dnsx": "/usr/local/bin/dnsx",
+    "httpx": "/usr/local/bin/httpx",
+    "naabu": "/usr/local/bin/naabu",
+    "nuclei": "/usr/local/bin/nuclei",
+
+    "ffuf": "/usr/local/bin/ffuf",
+    "feroxbuster": "/usr/local/bin/feroxbuster",
+    "whatweb": "/usr/local/bin/whatweb",
+    "favirecon": "/usr/local/bin/favirecon",
+    "csprecon": "/usr/local/bin/csprecon",
+    "nextnet": "/usr/local/bin/nextnet",
+
+    "screenshot_tool": "/usr/local/bin/gowitness",
+
+    "enum4linux_ng": "/usr/local/bin/enum4linux-ng",
+    "nbtstat": "/usr/bin/nbtstat",
+    "netexec_path": "/usr/local/bin/netexec",
+
+    "havoc_client": "/opt/havoc/client/havoc"
   },
+
   "api_keys": {
-    "shodan": "SHODAN_API_KEY_HERE",
-    "censys_id": "CENSYS_ID",
-    "censys_secret": "CENSYS_SECRET"
-  }
+    "shodan": "CHANGE_ME_SHODAN_API_KEY",
+    "censys_id": "CHANGE_ME_CENSYS_API_ID",
+    "censys_secret": "CHANGE_ME_CENSYS_API_SECRET",
+
+    "binaryedge": "CHANGE_ME_BINARYEDGE_API_KEY",
+    "ipinfo_token": "CHANGE_ME_IPINFO_TOKEN",
+    "urlscan_key": "CHANGE_ME_URLSCAN_API_KEY",
+    "virustotal": "CHANGE_ME_VIRUSTOTAL_API_KEY",
+    "netlas_token": "CHANGE_ME_NETLAS_API_KEY",
+    "dnstwister": "OPTIONAL_OR_CHANGE_ME_DNSTWISTER_KEY",
+
+    "empire_api_url": "https://127.0.0.1:1337/api",
+    "empire_user": "CHANGE_ME_EMPIRE_USER",
+    "empire_pass": "CHANGE_ME_EMPIRE_PASSWORD",
+    "empire_api_token": "OPTIONAL_IF_USING_TOKEN_AUTH",
+
+    "adaptix_api_url": "https://127.0.0.1:8443/api",
+    "adaptix_username": "CHANGE_ME_ADAPTIX_USER",
+    "adaptix_password": "CHANGE_ME_ADAPTIX_PASSWORD"
+  },
+
+  "scripts": [
+    {
+      "name": "ad_enum_quick",
+      "path": "scripts/ad_enum_quick.rb",
+      "interpreter": "ruby",
+      "args": [],
+      "description": "Quick AD enumeration from a compromised Windows host",
+      "tags": ["windows", "ad", "enum"]
+    },
+    {
+      "name": "cloud_inventory",
+      "path": "scripts/cloud_inventory.rb",
+      "interpreter": "ruby",
+      "args": [],
+      "description": "Pull basic cloud asset inventory using existing creds",
+      "tags": ["cloud", "inventory"]
+    },
+    {
+      "name": "web_screenshot_report",
+      "path": "scripts/web_screenshot_report.rb",
+      "interpreter": "ruby",
+      "args": [],
+      "description": "Generate an HTML report from HTTP screenshots and tech data",
+      "tags": ["web", "report", "screenshots"]
+    }
+  ]
+}
+
 }
