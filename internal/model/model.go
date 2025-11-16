@@ -197,3 +197,29 @@ type PrivescHint struct {
 	References []string            `json:"references,omitempty"`
 	CreatedAt  time.Time           `json:"created_at"`
 }
+
+// IPEnrichment aggregates OSINT data about an IP address from multiple providers.
+type IPEnrichment struct {
+	IP string `json:"ip"`
+
+	Shodan     map[string]interface{} `json:"shodan,omitempty"`
+	Censys     map[string]interface{} `json:"censys,omitempty"`
+	BinaryEdge map[string]interface{} `json:"binaryedge,omitempty"`
+	IPInfo     map[string]interface{} `json:"ipinfo,omitempty"`
+	VirusTotal map[string]interface{} `json:"virustotal,omitempty"`
+	Netlas     map[string]interface{} `json:"netlas,omitempty"`
+
+	// Per-provider errors (e.g. quota, network, auth)
+	Errors map[string]string `json:"errors,omitempty"`
+}
+
+// DomainEnrichment aggregates OSINT data about a domain.
+type DomainEnrichment struct {
+	Domain     string                 `json:"domain"`
+	URLScan    map[string]interface{} `json:"urlscan,omitempty"`    // e.g. submission UUID
+	VirusTotal map[string]interface{} `json:"virustotal,omitempty"` // VT domain report
+	Netlas     map[string]interface{} `json:"netlas,omitempty"`
+	DNSTwister map[string]interface{} `json:"dnstwister,omitempty"`
+
+	Errors map[string]string `json:"errors,omitempty"`
+}
