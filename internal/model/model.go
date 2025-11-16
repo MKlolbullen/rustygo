@@ -187,15 +187,40 @@ const (
 
 // PrivescHint describes a potential privilege escalation opportunity (enumeration only).
 type PrivescHint struct {
-	Host       string              `json:"host"`
-	ID         string              `json:"id"`
-	Title      string              `json:"title"`
-	Severity   PrivescHintSeverity `json:"severity"`
-	Category   string              `json:"category,omitempty"`
-	Description string             `json:"description,omitempty"`
-	Evidence   string              `json:"evidence,omitempty"`
-	References []string            `json:"references,omitempty"`
-	CreatedAt  time.Time           `json:"created_at"`
+	Host        string              `json:"host"`
+	ID          string              `json:"id"`
+	Title       string              `json:"title"`
+	Severity    PrivescHintSeverity `json:"severity"`
+	Category    string              `json:"category,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Evidence    string              `json:"evidence,omitempty"`
+	References  []string            `json:"references,omitempty"`
+	CreatedAt   time.Time           `json:"created_at"`
+}
+
+// Script describes a runnable script exposed via CLI/GUI.
+type Script struct {
+	Name        string   `json:"name"`
+	Path        string   `json:"path"`
+	Interpreter string   `json:"interpreter,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+}
+
+// ScriptRunRequest is what the GUI/CLI send to the HTTP API when running a script.
+type ScriptRunRequest struct {
+	Name string   `json:"name"`
+	Args []string `json:"args,omitempty"`
+}
+
+// ScriptRunResult is the structured output of a script execution.
+type ScriptRunResult struct {
+	Name       string    `json:"name"`
+	ExitCode   int       `json:"exit_code"`
+	Stdout     string    `json:"stdout"`
+	Stderr     string    `json:"stderr"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
 }
 
 // IPEnrichment aggregates OSINT data about an IP address from multiple providers.
@@ -222,29 +247,4 @@ type DomainEnrichment struct {
 	DNSTwister map[string]interface{} `json:"dnstwister,omitempty"`
 
 	Errors map[string]string `json:"errors,omitempty"`
-}
-
-// Script describes a runnable script exposed via CLI/GUI.
-type Script struct {
-    Name        string   `json:"name"`
-    Path        string   `json:"path"`
-    Interpreter string   `json:"interpreter,omitempty"`
-    Description string   `json:"description,omitempty"`
-    Tags        []string `json:"tags,omitempty"`
-}
-
-// ScriptRunRequest is what the GUI/CLI send to the HTTP API when running a script.
-type ScriptRunRequest struct {
-    Name string   `json:"name"`
-    Args []string `json:"args,omitempty"`
-}
-
-// ScriptRunResult is the structured output of a script execution.
-type ScriptRunResult struct {
-    Name       string    `json:"name"`
-    ExitCode   int       `json:"exit_code"`
-    Stdout     string    `json:"stdout"`
-    Stderr     string    `json:"stderr"`
-    StartedAt  time.Time `json:"started_at"`
-    FinishedAt time.Time `json:"finished_at"`
 }
