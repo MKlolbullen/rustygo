@@ -371,6 +371,11 @@ func (c *VirusTotalClient) get(ctx context.Context, path string, query map[strin
 	return out, nil
 }
 
+// LookupDomain looks up a domain in VirusTotal.
+func (c *VirusTotalClient) LookupDomain(ctx context.Context, domain string) (map[string]interface{}, error) {
+	return c.get(ctx, "/domains/"+url.PathEscape(domain), nil)
+}
+
 // LookupURL looks up a URL (VT v3 expects URL identifier form).
 func (c *VirusTotalClient) LookupURL(ctx context.Context, id string) (map[string]interface{}, error) {
 	return c.get(ctx, "/urls/"+url.PathEscape(id), nil)
