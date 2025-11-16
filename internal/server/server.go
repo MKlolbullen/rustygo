@@ -15,17 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MKlolbullen/rustygo/internal/ad"
 	"github.com/MKlolbullen/rustygo/internal/c2"
 	"github.com/MKlolbullen/rustygo/internal/config"
-	"github.com/MKlolbullen/rustygo/internal/credstore"
-	"github.com/MKlolbullen/rustygo/internal/hoststore"
 	"github.com/MKlolbullen/rustygo/internal/model"
 	"github.com/MKlolbullen/rustygo/internal/pipeline"
-	"github.com/MKlolbullen/rustygo/internal/privesc"
-	"github.com/MKlolbullen/rustygo/internal/sessionstore"
 	"github.com/MKlolbullen/rustygo/internal/windows"
-	"github.com/MKlolbullen/rustygo/internal/web"
 )
 
 type JobStatus string
@@ -48,34 +42,26 @@ type Job struct {
 	CreatedAt time.Time          `json:"created_at"`
 	UpdatedAt time.Time          `json:"updated_at"`
 }
+
 type Server struct {
-    cfg     *config.Config
-    mux     *http.ServeMux
-    dataDir string
+	cfg     *config.Config
+	mux     *http.ServeMux
+	dataDir string
 
-    mu    sync.Mutex
-    jobs  map[string]*Job
-
-    creds []model.Credential
-    hosts []model.HostProfile
-    hints []model.PrivescHint
-
-	hostStore *hoststore.Store
-	credStore *credstore.Store
-	sessStore *sessionstore.Store
+	mu    sync.Mutex
+	jobs  map[string]*Job
+	creds []model.Credential
+	hosts []model.HostProfile
+	hints []model.PrivescHint
 }
-
 
 func New(cfg *config.Config, dataDir string) *Server {
 	mux := http.NewServeMux()
 	s := &Server{
-		cfg:       cfg,
-		mux:       mux,
-		dataDir:   dataDir,
-		jobs:      make(map[string]*Job),
-		hostStore: hoststore.New(dataDir),
-		credStore: credstore.New(dataDir),
-		sessStore: sessionstore.New(dataDir),
+		cfg:     cfg,
+		mux:     mux,
+		dataDir: dataDir,
+		jobs:    make(map[string]*Job),
 	}
 	s.routes()
 	return s
@@ -86,7 +72,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/run/full", s.handleRunFull)
 
 	// Job APIs
-	_s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
+	s.mux.HandleFunc("/api/jobs/full", s.handleCreateJob)
 	s.mux.HandleFunc("/api/jobs", s.handleJobs)
 	s.mux.HandleFunc("/api/jobs/", s.handleJob)
 
@@ -94,33 +80,20 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/results", s.handleListResults)
 	s.mux.HandleFunc("/api/results/", s.handleGetResult)
 
-	// Windows / AD / network enumeration
-	s.mux.HandleFunc("/api/enum/smb", s.handleEnumSMB)             // enum4linux-ng
-	s.mux.HandleFunc("/api/enum/netbios", s.handleEnumNetBIOS)     // nbtstat/nbtscan
-	s.mux.HandleFunc("/api/enum/netexec", s.handleEnumNetexec)     // netexec
-	s.mux.HandleFunc("/api/enum/smbshares", s.handleEnumSMBShares) // smbclient/smbmap shares
+	// Windows / AD enumeration
+	s.mux.HandleFunc("/api/enum/smb", s.handleEnumSMB)
+	s.mux.HandleFunc("/api/enum/netbios", s.handleEnumNetBIOS)
+	s.mux.HandleFunc("/api/enum/netexec", s.handleEnumNetexec)
 
-	// LDAP & BloodHound
-	s.mux.HandleFunc("/api/ad/ldap", s.handleADLDAP)
-	s.mux.HandleFunc("/api/ad/bloodhound/summary", s.handleBloodHoundSummary)
-	s.mux.HandleFunc("/api/ad/bloodhound/graph", s.handleBloodHoundGraph)
-
-	// Host profiles & privesc
-	s.mux.HandleFunc("/api/host/profile/analyze", s.handleHostProfileAnalyze)
-	s.mux.HandleFunc("/api/host/profile/save", s.handleHostProfileSave)
-	s.mux.HandleFunc("/api/host/profiles", s.handleHostProfileList)
-
-	// Credentials & sessions
-	s.mux.HandleFunc("/api/credentials/import", s.handleCredentialsImport)
-	s.mux.HandleFunc("/api/credentials", s.handleCredentialsList)
-	s.mux.HandleFunc("/api/sessions/import", s.handleSessionsImport)
-	s.mux.HandleFunc("/api/sessions", s.handleSessionsList)
-	// Credentials
-    s.mux.HandleFunc("/api/creds", s.handleCreds)
 	// Beacon generation
 	s.mux.HandleFunc("/api/beacon/havoc", s.handleBeaconHavoc)
 	s.mux.HandleFunc("/api/beacon/empire", s.handleBeaconEmpire)
 	s.mux.HandleFunc("/api/beacon/adaptix", s.handleBeaconAdaptix)
+
+	// Credentials & host/privesc imports
+	s.mux.HandleFunc("/api/creds", s.handleCreds)
+	s.mux.HandleFunc("/api/hosts", s.handleHosts)
+	s.mux.HandleFunc("/api/privesc", s.handlePrivesc)
 
 	// GUI
 	s.mux.HandleFunc("/", s.handleIndex)
@@ -171,7 +144,7 @@ func (s *Server) handleRunFull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
+	json.NewEncoder(w).Encode(res)
 }
 
 // ---------- Job handling (async full recon) ----------
@@ -207,7 +180,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	go s.runJob(job.ID)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(job)
+	json.NewEncoder(w).Encode(job)
 }
 
 func (s *Server) runJob(id string) {
@@ -283,7 +256,7 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
@@ -306,7 +279,7 @@ func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(j)
+	json.NewEncoder(w).Encode(j)
 }
 
 // ---------- Saved result handling ----------
@@ -343,7 +316,7 @@ func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode([]interface{}{})
+			json.NewEncoder(w).Encode([]interface{}{})
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -360,7 +333,7 @@ func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
 		out = append(out, item{File: e.Name()})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
@@ -385,10 +358,10 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = io.Copy(w, f)
+	io.Copy(w, f)
 }
 
-// ---------- Windows / AD / network enumeration handlers ----------
+// ---------- Windows / AD enumeration handlers ----------
 
 // POST /api/enum/smb { "host": "x", "opts": "-U,-G" }
 func (s *Server) handleEnumSMB(w http.ResponseWriter, r *http.Request) {
@@ -425,7 +398,7 @@ func (s *Server) handleEnumSMB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
+	json.NewEncoder(w).Encode(res)
 }
 
 // POST /api/enum/netbios { "ip": "x.x.x.x" }
@@ -452,7 +425,7 @@ func (s *Server) handleEnumNetBIOS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
+	json.NewEncoder(w).Encode(res)
 }
 
 // POST /api/enum/netexec { "module": "smb", "target": "host", "flags": "--shares" }
@@ -486,471 +459,7 @@ func (s *Server) handleEnumNetexec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
-}
-
-// POST /api/enum/smbshares { "host": "...", "username": "...", "password": "...", "domain": "...", "tool": "smbclient|smbmap" }
-func (s *Server) handleEnumSMBShares(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Host     string `json:"host"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Domain   string `json:"domain"`
-		Tool     string `json:"tool"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Host == "" {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-	defer cancel()
-
-	eng := windows.NewSMBEnumerator(s.cfg)
-	res, err := eng.EnumShares(ctx, windows.SMBEnumOptions{
-		Host:     body.Host,
-		Username: body.Username,
-		Password: body.Password,
-		Domain:   body.Domain,
-		Tool:     body.Tool,
-	})
-	if err != nil {
-		http.Error(w, "smb shares error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
-}
-
-// ---------- LDAP & BloodHound ----------
-
-// POST /api/ad/ldap { "host": "...", "base_dn": "...", "filter": "(objectClass=user)", "attrs": "cn,sAMAccountName", "bind_dn": "...", "password": "...", "use_ldaps": true }
-func (s *Server) handleADLDAP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Host     string `json:"host"`
-		BaseDN   string `json:"base_dn"`
-		Filter   string `json:"filter"`
-		Attrs    string `json:"attrs"`
-		BindDN   string `json:"bind_dn"`
-		Password string `json:"password"`
-		UseLDAPS bool   `json:"use_ldaps"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Host == "" || body.BaseDN == "" {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	var attrs []string
-	if strings.TrimSpace(body.Attrs) != "" {
-		for _, a := range strings.Split(body.Attrs, ",") {
-			a = strings.TrimSpace(a)
-			if a != "" {
-				attrs = append(attrs, a)
-			}
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-	defer cancel()
-
-	engine := ad.NewLDAPEngine(s.cfg)
-	res, err := engine.Search(ctx, ad.LDAPOptions{
-		Host:       body.Host,
-		BaseDN:     body.BaseDN,
-		Filter:     body.Filter,
-		Attributes: attrs,
-		BindDN:     body.BindDN,
-		Password:   body.Password,
-		UseLDAPS:   body.UseLDAPS,
-	})
-	if err != nil {
-		http.Error(w, "ldap error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
-}
-
-// POST /api/ad/bloodhound/summary { "json": "<full bloodhound json string>" }
-func (s *Server) handleBloodHoundSummary(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		JSON string `json:"json"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.JSON) == "" {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	engine := ad.NewBloodHoundEngine()
-	summary, err := engine.SummarizeJSONBytes([]byte(body.JSON))
-	if err != nil {
-		http.Error(w, "bloodhound parse error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(summary)
-}
-
-// POST /api/ad/bloodhound/graph { "json": "<full bloodhound JSON>", "engagement": "corp.local" }
-func (s *Server) handleBloodHoundGraph(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		JSON       string `json:"json"`
-		Engagement string `json:"engagement"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.JSON) == "" {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	graph, err := ad.ParseBloodHoundGraph([]byte(body.JSON))
-	if err != nil {
-		http.Error(w, "bloodhound graph parse error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	s.linkGraphWithHosts(graph, body.Engagement)
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(graph)
-}
-
-// ---------- Host profiles & privesc ----------
-
-// POST /api/host/profile/analyze
-// Body: { "profile": { HostProfile ... } }
-func (s *Server) handleHostProfileAnalyze(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Profile *model.HostProfile `json:"profile"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Profile == nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	hints := privesc.AnalyzeHost(body.Profile)
-
-	resp := struct {
-		Profile *model.HostProfile  `json:"profile"`
-		Hints   []model.PrivescHint `json:"hints"`
-	}{
-		Profile: body.Profile,
-		Hints:   hints,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// POST /api/host/profile/save
-// Body: { "engagement": "corp.local", "profile": {...}, "owned": true, "owner_note": "initial foothold" }
-func (s *Server) handleHostProfileSave(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Engagement string             `json:"engagement"`
-		Profile    *model.HostProfile `json:"profile"`
-		Owned      bool               `json:"owned"`
-		OwnerNote  string             `json:"owner_note"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Profile == nil || body.Profile.Hostname == "" {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now().UTC()
-	hints := privesc.AnalyzeHost(body.Profile)
-
-	rec := &model.HostRecord{
-		Engagement:  body.Engagement,
-		Profile:     body.Profile,
-		Hints:       hints,
-		Owned:       body.Owned,
-		OwnerNote:   body.OwnerNote,
-		FirstSeen:   now,
-		LastUpdated: now,
-	}
-
-	if err := s.hostStore.Save(rec); err != nil {
-		http.Error(w, "save error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(rec)
-}
-
-// GET /api/host/profiles?engagement=corp.local
-func (s *Server) handleHostProfileList(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-	eng := r.URL.Query().Get("engagement")
-	recs, err := s.hostStore.List(eng)
-	if err != nil {
-		http.Error(w, "list error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(recs)
-}
-
-// linkGraphWithHosts annotates ADGraph nodes with host/owned state based on
-// stored HostRecords for the given engagement.
-func (s *Server) linkGraphWithHosts(graph *model.ADGraph, engagement string) {
-	if graph == nil || strings.TrimSpace(engagement) == "" {
-		return
-	}
-	recs, err := s.hostStore.List(engagement)
-	if err != nil {
-		log.Printf("hostStore.List error in linkGraphWithHosts: %v", err)
-		return
-	}
-	if len(recs) == 0 {
-		return
-	}
-
-	for i := range graph.Nodes {
-		n := &graph.Nodes[i]
-		match := findMatchingHostRecord(n, recs)
-		if match == nil {
-			// ensure state at least reflects high_value
-			if n.State == "" && n.HighValue {
-				n.State = "high_value"
-			}
-			continue
-		}
-
-		if match.Profile != nil {
-			if n.Hostname == "" {
-				n.Hostname = match.Profile.Hostname
-			}
-			if n.Domain == "" {
-				n.Domain = match.Profile.Domain
-			}
-		}
-		if match.Owned {
-			n.Owned = true
-		}
-
-		// derive final state
-		switch {
-		case n.HighValue && n.Owned:
-			n.State = "owned_high_value"
-		case n.Owned:
-			n.State = "owned"
-		case n.HighValue:
-			n.State = "high_value"
-		default:
-			n.State = ""
-		}
-	}
-}
-
-func findMatchingHostRecord(n *model.ADGraphNode, recs []*model.HostRecord) *model.HostRecord {
-	if n == nil {
-		return nil
-	}
-	nn := strings.ToLower(strings.TrimSpace(n.Name))
-	if nn == "" {
-		return nil
-	}
-
-	// Extract a "short name" before '.' or '@' or space.
-	delims := []string{".", "@", " "}
-	short := nn
-	for _, d := range delims {
-		if idx := strings.Index(nn, d); idx > 0 {
-			short = nn[:idx]
-			break
-		}
-	}
-
-	for _, rec := range recs {
-		if rec.Profile == nil {
-			continue
-		}
-		host := strings.ToLower(strings.TrimSpace(rec.Profile.Hostname))
-		if host == "" {
-			continue
-		}
-		if short == host {
-			return rec
-		}
-		dom := strings.ToLower(strings.TrimSpace(rec.Profile.Domain))
-		if dom != "" {
-			fqdn := host + "." + dom
-			if nn == fqdn {
-				return rec
-			}
-		}
-	}
-
-	return nil
-}
-
-// ---------- Credentials & sessions ----------
-
-// POST /api/credentials/import
-// Body: { "engagement": "CORP.LOCAL", "credentials": [ { "account":"user@DOMAIN", "type":"ntlm_hash", "secret":"...", "host":"dc01", "tags":["kerberoast"] }, ... ] }
-func (s *Server) handleCredentialsImport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Engagement  string              `json:"engagement"`
-		Credentials []model.Credential  `json:"credentials"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-	if len(body.Credentials) == 0 {
-		http.Error(w, "no credentials provided", http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now().UTC()
-	saved := make([]*model.Credential, 0, len(body.Credentials))
-
-	for i := range body.Credentials {
-		c := &body.Credentials[i]
-		if strings.TrimSpace(c.Account) == "" {
-			continue
-		}
-		if strings.TrimSpace(c.Engagement) == "" {
-			c.Engagement = body.Engagement
-		}
-		if strings.TrimSpace(c.Engagement) == "" {
-			c.Engagement = "default"
-		}
-		if c.ID == "" {
-			c.ID = randomID()
-		}
-		if c.FirstSeen.IsZero() {
-			c.FirstSeen = now
-		}
-		if c.LastUpdated.IsZero() {
-			c.LastUpdated = now
-		}
-		if err := s.credStore.Save(c); err != nil {
-			log.Printf("credential save error: %v", err)
-			continue
-		}
-		saved = append(saved, c)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(saved)
-}
-
-// GET /api/credentials?engagement=CORP.LOCAL
-func (s *Server) handleCredentialsList(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-	eng := r.URL.Query().Get("engagement")
-	creds, err := s.credStore.List(eng)
-	if err != nil {
-		http.Error(w, "list error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(creds)
-}
-
-// POST /api/sessions/import
-// Body: { "engagement":"CORP.LOCAL", "sessions":[{"user":"user@DOM","host":"dc01","source_tool":"external"}...] }
-func (s *Server) handleSessionsImport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Engagement string          `json:"engagement"`
-		Sessions   []model.Session `json:"sessions"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-	if len(body.Sessions) == 0 {
-		http.Error(w, "no sessions provided", http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now().UTC()
-	saved := make([]*model.Session, 0, len(body.Sessions))
-
-	for i := range body.Sessions {
-		sess := &body.Sessions[i]
-		if strings.TrimSpace(sess.User) == "" || strings.TrimSpace(sess.Host) == "" {
-			continue
-		}
-		if strings.TrimSpace(sess.Engagement) == "" {
-			sess.Engagement = body.Engagement
-		}
-		if strings.TrimSpace(sess.Engagement) == "" {
-			sess.Engagement = "default"
-		}
-		if sess.ID == "" {
-			sess.ID = randomID()
-		}
-		if sess.FirstSeen.IsZero() {
-			sess.FirstSeen = now
-		}
-		if sess.LastSeen.IsZero() {
-			sess.LastSeen = now
-		}
-		if err := s.sessStore.Save(sess); err != nil {
-			log.Printf("session save error: %v", err)
-			continue
-		}
-		saved = append(saved, sess)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(saved)
-}
-
-// GET /api/sessions?engagement=CORP.LOCAL
-func (s *Server) handleSessionsList(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-	eng := r.URL.Query().Get("engagement")
-	sessions, err := s.sessStore.List(eng)
-	if err != nil {
-		http.Error(w, "list error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(sessions)
+	json.NewEncoder(w).Encode(res)
 }
 
 // ---------- Beacon handlers ----------
@@ -978,7 +487,7 @@ func (s *Server) handleBeaconHavoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"output": out})
+	json.NewEncoder(w).Encode(map[string]string{"output": out})
 }
 
 // POST /api/beacon/empire { raw Empire config JSON }
@@ -1005,7 +514,7 @@ func (s *Server) handleBeaconEmpire(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"listener": listener,
 		"stager":   stager,
 	})
@@ -1036,10 +545,147 @@ func (s *Server) handleBeaconAdaptix(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"id":  id,
 		"url": url,
 	})
+}
+
+// ---------- Credentials, Hosts, Privesc ----------
+
+// handleCreds supports:
+//   GET  /api/creds  -> list credentials
+//   POST /api/creds  -> import credentials (array or { "creds": [...] })
+func (s *Server) handleCreds(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(s.creds)
+	case http.MethodPost:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		var arr []model.Credential
+		if err := json.Unmarshal(body, &arr); err != nil {
+			// maybe wrapped as { "creds": [...] }
+			var wrapper struct {
+				Creds []model.Credential `json:"creds"`
+			}
+			if err2 := json.Unmarshal(body, &wrapper); err2 != nil {
+				http.Error(w, "invalid json", http.StatusBadRequest)
+				return
+			}
+			arr = wrapper.Creds
+		}
+
+		now := time.Now().UTC()
+		s.mu.Lock()
+		for i := range arr {
+			if arr[i].ID == "" {
+				arr[i].ID = randomID()
+			}
+			if arr[i].CreatedAt.IsZero() {
+				arr[i].CreatedAt = now
+			}
+			s.creds = append(s.creds, arr[i])
+		}
+		s.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"imported": len(arr)})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleHosts supports GET (list) and POST (import) host profiles.
+func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(s.hosts)
+	case http.MethodPost:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		var arr []model.HostProfile
+		if err := json.Unmarshal(body, &arr); err != nil {
+			var wrapper struct {
+				Hosts []model.HostProfile `json:"hosts"`
+			}
+			if err2 := json.Unmarshal(body, &wrapper); err2 != nil {
+				http.Error(w, "invalid json", http.StatusBadRequest)
+				return
+			}
+			arr = wrapper.Hosts
+		}
+		now := time.Now().UTC()
+		s.mu.Lock()
+		for i := range arr {
+			if arr[i].LastSeen.IsZero() {
+				arr[i].LastSeen = now
+			}
+			s.hosts = append(s.hosts, arr[i])
+		}
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"imported": len(arr)})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handlePrivesc supports GET (list) and POST (import) privesc hints.
+func (s *Server) handlePrivesc(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(s.hints)
+	case http.MethodPost:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		var arr []model.PrivescHint
+		if err := json.Unmarshal(body, &arr); err != nil {
+			var wrapper struct {
+				Hints []model.PrivescHint `json:"hints"`
+			}
+			if err2 := json.Unmarshal(body, &wrapper); err2 != nil {
+				http.Error(w, "invalid json", http.StatusBadRequest)
+				return
+			}
+			arr = wrapper.Hints
+		}
+		now := time.Now().UTC()
+		s.mu.Lock()
+		for i := range arr {
+			if arr[i].ID == "" {
+				arr[i].ID = randomID()
+			}
+			if arr[i].CreatedAt.IsZero() {
+				arr[i].CreatedAt = now
+			}
+			s.hints = append(s.hints, arr[i])
+		}
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"imported": len(arr)})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // ---------- GUI ----------
@@ -1050,7 +696,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, indexHTML)
+	io.WriteString(w, indexHTML)
 }
 
 const indexHTML = `<!DOCTYPE html>
@@ -1078,7 +724,7 @@ const indexHTML = `<!DOCTYPE html>
 </head>
 <body>
   <h1>rustygo</h1>
-  <p>Multi-phase recon & operator console (Go + Rust). For authorized testing only.</p>
+  <p>Multi-phase recon framework (Go + Rust) with C2 beacon helpers. For authorized testing only.</p>
 
   <div class="row">
     <div class="col">
@@ -1113,14 +759,6 @@ const indexHTML = `<!DOCTYPE html>
         <input id="netexec-target" placeholder="target host" />
         <input id="netexec-flags" placeholder="extra flags (optional)" />
         <button onclick="enumNetexec()">Run Netexec</button>
-
-        <h3>SMB Shares (smbclient/smbmap)</h3>
-        <input id="smbshares-host" placeholder="host or IP" />
-        <input id="smbshares-user" placeholder="username (optional)" />
-        <input id="smbshares-pass" placeholder="password (optional)" type="password" />
-        <input id="smbshares-domain" placeholder="domain (optional)" />
-        <input id="smbshares-tool" placeholder="tool (smbclient|smbmap, optional)" />
-        <button onclick="enumSMBShares()">Enum SMB Shares</button>
       </div>
 
       <div class="card">
@@ -1160,69 +798,36 @@ const indexHTML = `<!DOCTYPE html>
       </div>
 
       <div class="card">
-        <h2>Directory / LDAP & BloodHound</h2>
-        <h3>ldapsearch</h3>
-        <input id="ldap-host" placeholder="ldap.example.com:389" />
-        <input id="ldap-basedn" placeholder="DC=example,DC=com" />
-        <input id="ldap-filter" placeholder="(objectClass=user)" />
-        <input id="ldap-attrs" placeholder="cn,sAMAccountName,memberOf (optional)" />
-        <input id="ldap-binddn" placeholder="bind DN (optional)" />
-        <input id="ldap-password" type="password" placeholder="password (optional)" />
-        <label><input type="checkbox" id="ldap-use-ldaps" /> use LDAPS</label>
-        <button onclick="runLDAP()">Run ldapsearch</button>
-
-        <h3>BloodHound JSON summary</h3>
-        <textarea id="bh-json" style="height:80px;" placeholder="Paste BloodHound JSON with nodes/edges here"></textarea>
-        <button onclick="bloodhoundSummary()">Summarize BloodHound JSON</button>
-      </div>
-
-      <div class="card">
-        <h2>Host profile & privesc hints</h2>
-        <input id="host-engagement" placeholder="engagement/scope (e.g. example.com or CORP.LOCAL)" />
-        <label><input type="checkbox" id="host-owned" /> mark host as owned</label>
-        <p>Paste a HostProfile JSON from an agent or C2 and analyze/store privesc hints.</p>
-        <textarea id="host-profile-json" style="width:100%;height:120px;" placeholder='{"hostname":"dc01","os_family":"windows","os_version":"10.0","local_users":[...],...}'></textarea>
-        <button onclick="analyzeHostProfile()">Analyze host profile (no save)</button>
-        <button onclick="saveHostProfile()">Save host profile</button>
-      </div>
-
-      <div class="card">
-        <h2>AD Graph visualization</h2>
-        <input id="graph-engagement" placeholder="engagement/scope (optional, to color owned hosts)" />
-        <p>Paste BloodHound JSON and render a simplified relationship graph. High-value and owned nodes are highlighted.</p>
-        <textarea id="bh-json-graph" style="width:100%;height:120px;" placeholder="Paste BloodHound JSON with nodes/edges here"></textarea>
-        <button onclick="renderBHGraph()">Render AD graph</button>
-        <div id="graph-container" style="margin-top:8px; border:1px solid #1f2937; border-radius:8px; padding:4px; max-height:400px; overflow:auto;">
-          <svg id="graph-svg" width="600" height="400"></svg>
+        <h2>Credentials</h2>
+        <textarea id="creds-json" style="height:100px;" placeholder='[{"type":"password","username":"user","domain":"corp","secret":"Passw0rd!","source":"import"}]'></textarea>
+        <div style="margin-top:8px;">
+          <button onclick="importCreds()">Import</button>
+          <button onclick="loadCreds()">Refresh</button>
         </div>
-      </div>
-
-      <div class="card">
-        <h2>Compromised accounts</h2>
-        <input id="accounts-engagement" placeholder="engagement/scope (e.g. CORP.LOCAL)" />
-        <button onclick="loadCompromisedAccounts()">Load compromised accounts</button>
-        <table id="accounts-table">
-          <thead><tr><th>Account</th><th>Types</th><th>Cred count</th><th>Hosts</th></tr></thead>
+        <table id="creds">
+          <thead><tr><th>User</th><th>Domain</th><th>Type</th><th>Source</th><th>Host</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
 
       <div class="card">
-        <h2>Captured credentials</h2>
-        <input id="creds-engagement" placeholder="engagement/scope (e.g. CORP.LOCAL)" />
-        <button onclick="loadCredentials()">Load credentials</button>
-        <table id="creds-table">
-          <thead><tr><th>Account</th><th>Type</th><th>Host</th><th>Tags</th><th>First seen</th></tr></thead>
+        <h2>Hosts & PrivEsc hints</h2>
+
+        <textarea id="hosts-json" style="height:80px;" placeholder='[{"name":"HOST1","os":"Windows","domain":"CORP","ips":["10.0.0.5"],"local_admins":["CORP\\user"]}]'></textarea>
+        <button onclick="importHosts()">Import Hosts</button>
+
+        <textarea id="privesc-json" style="height:80px; margin-top:8px;" placeholder='[{"host":"HOST1","title":"Writable service bin","severity":"high","category":"service","description":"Service X bin path is writable by Users"}]'></textarea>
+        <button onclick="importPrivesc()">Import Hints</button>
+
+        <h3 style="margin-top:12px;">Hosts</h3>
+        <table id="hosts">
+          <thead><tr><th>Name</th><th>OS</th><th>Domain</th><th>Tags</th></tr></thead>
           <tbody></tbody>
         </table>
-      </div>
 
-      <div class="card">
-        <h2>User sessions</h2>
-        <input id="sessions-engagement" placeholder="engagement/scope (e.g. CORP.LOCAL)" />
-        <button onclick="loadSessions()">Load sessions</button>
-        <table id="sessions-table">
-          <thead><tr><th>User</th><th>Host</th><th>First seen</th><th>Last seen</th><th>Source</th></tr></thead>
+        <h3>Hints</h3>
+        <table id="hints">
+          <thead><tr><th>Host</th><th>Severity</th><th>Title</th><th>Category</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -1364,7 +969,7 @@ async function enumSMB() {
   });
   const data = await res.json();
   document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-  document.getElementById('summary').innerHTML = '<p><strong>enum4linux-ng host:</strong> ' + data.host + '</p>';
+  document.getElementById('summary').innerHTML = '<p><strong>SMB enum for:</strong> ' + host + '</p>';
 }
 
 async function enumNetBIOS() {
@@ -1403,35 +1008,6 @@ async function enumNetexec() {
   document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
   let html = '<p><strong>Netexec module:</strong> ' + data.module + '</p>';
   html += '<p><strong>Target:</strong> ' + data.host + '</p>';
-  document.getElementById('summary').innerHTML = html;
-}
-
-async function enumSMBShares() {
-  const host = document.getElementById('smbshares-host').value.trim();
-  const username = document.getElementById('smbshares-user').value.trim();
-  const password = document.getElementById('smbshares-pass').value.trim();
-  const domain = document.getElementById('smbshares-domain').value.trim();
-  const tool = document.getElementById('smbshares-tool').value.trim();
-  if (!host) return;
-  const res = await fetch('/api/enum/smbshares', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ host, username, password, domain, tool })
-  });
-  const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  let html = '<p><strong>SMB shares on:</strong> ' + data.host + ' (tool: ' + data.tool + ')</p>';
-  if (data.shares && data.shares.length) {
-    html += '<table><thead><tr><th>Share</th><th>Comment</th><th>R</th><th>W</th></tr></thead><tbody>';
-    data.shares.forEach(sh => {
-      html += '<tr><td>' + sh.name + '</td><td>' + (sh.comment || '') + '</td><td>' +
-              (sh.read ? '✔' : '') + '</td><td>' + (sh.write ? '✔' : '') + '</td></tr>';
-    });
-    html += '</tbody></table>';
-  } else if (data.raw_output) {
-    html += '<p>No parsed shares; see raw output.</p>';
-  }
   document.getElementById('summary').innerHTML = html;
 }
 
@@ -1483,353 +1059,132 @@ async function beaconAdaptix() {
   const data = await res.json();
   document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
   document.getElementById('summary').innerHTML =
-    '<p><strong>Adaptix agent ID:</strong> ' + (data.id || '') +
-    '<br/><strong>Download URL:</strong> ' + (data.url || '') + '</p>';
+    '<p><strong>Adaptix agent ID:</strong> ' + (data.id || '') + '<br/><strong>Download URL:</strong> ' + (data.url || '') + '</p>';
 }
 
-// LDAP & BloodHound helpers
-async function runLDAP() {
-  const host = document.getElementById('ldap-host').value.trim();
-  const base_dn = document.getElementById('ldap-basedn').value.trim();
-  const filter = document.getElementById('ldap-filter').value.trim();
-  const attrs = document.getElementById('ldap-attrs').value.trim();
-  const bind_dn = document.getElementById('ldap-binddn').value.trim();
-  const password = document.getElementById('ldap-password').value.trim();
-  const use_ldaps = document.getElementById('ldap-use-ldaps').checked;
-  if (!host || !base_dn) return;
-  const res = await fetch('/api/ad/ldap', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ host, base_dn, filter, attrs, bind_dn, password, use_ldaps })
-  });
-  const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  let html = '<p><strong>LDAP host:</strong> ' + data.host + '</p>';
-  html += '<p><strong>Base DN:</strong> ' + data.base_dn + '</p>';
-  html += '<p><strong>Filter:</strong> ' + data.filter + '</p>';
-  html += '<p><strong>Entries:</strong> ' + data.count + '</p>';
-  document.getElementById('summary').innerHTML = html;
-}
-
-async function bloodhoundSummary() {
-  const raw = document.getElementById('bh-json').value.trim();
-  if (!raw) return;
-  const res = await fetch('/api/ad/bloodhound/summary', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ json: raw })
-  });
-  const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  let html = '<p><strong>BloodHound summary:</strong> ' +
-             data.node_count + ' nodes, ' + data.edge_count + ' edges</p>';
-  if (data.node_types) {
-    html += '<p><strong>Node types:</strong></p><ul>';
-    for (const t in data.node_types) {
-      html += '<li>' + t + ': ' + data.node_types[t] + '</li>';
-    }
-    html += '</ul>';
-  }
-  document.getElementById('summary').innerHTML = html;
-}
-
-// Host profile & privesc
-async function analyzeHostProfile() {
-  const raw = document.getElementById('host-profile-json').value.trim();
-  if (!raw) return;
-  let profile;
-  try {
-    profile = JSON.parse(raw);
-  } catch (e) {
-    alert('HostProfile is not valid JSON');
-    return;
-  }
-  const res = await fetch('/api/host/profile/analyze', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile })
-  });
-  const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  let html = '<p><strong>Host:</strong> ' + (data.profile.hostname || '') +
-             ' (' + (data.profile.os_family || '') + ' ' + (data.profile.os_version || '') + ')</p>';
-  if (data.hints && data.hints.length) {
-    html += '<p><strong>Privesc hints:</strong> ' + data.hints.length + '</p><ul>';
-    data.hints.forEach(h => {
-      html += '<li><strong>[' + h.severity.toUpperCase() + '][' + h.category + ']</strong> ' +
-              h.title + '<br/><span style="opacity:0.8;">' + h.description + '</span></li>';
-    });
-    html += '</ul>';
-  } else {
-    html += '<p>No privesc hints found by current heuristics.</p>';
-  }
-  document.getElementById('summary').innerHTML = html;
-}
-
-async function saveHostProfile() {
-  const raw = document.getElementById('host-profile-json').value.trim();
-  const engagement = document.getElementById('host-engagement').value.trim();
-  const owned = document.getElementById('host-owned').checked;
-  if (!raw) return;
-  let profile;
-  try {
-    profile = JSON.parse(raw);
-  } catch (e) {
-    alert('HostProfile is not valid JSON');
-    return;
-  }
-  const res = await fetch('/api/host/profile/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ engagement, profile, owned })
-  });
-  const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  let html = '<p><strong>Saved host:</strong> ' + (data.profile && data.profile.hostname ? data.profile.hostname : '') + '</p>';
-  html += '<p><strong>Engagement:</strong> ' + (data.engagement || '') + '</p>';
-  if (data.owned) html += '<p>This host is marked as <strong>owned</strong>.</p>';
-  if (data.hints && data.hints.length) {
-    html += '<p><strong>Privesc hints:</strong> ' + data.hints.length + '</p><ul>';
-    data.hints.forEach(h => {
-      html += '<li><strong>[' + h.severity.toUpperCase() + '][' + h.category + ']</strong> ' +
-              h.title + '</li>';
-    });
-    html += '</ul>';
-  }
-  document.getElementById('summary').innerHTML = html;
-}
-
-// AD graph visualization
-async function renderBHGraph() {
-  const raw = document.getElementById('bh-json-graph').value.trim();
-  const engagement = document.getElementById('graph-engagement').value.trim();
-  if (!raw) return;
-  const res = await fetch('/api/ad/bloodhound/graph', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ json: raw, engagement })
-  });
-  const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  drawGraph(data);
-}
-
-function drawGraph(graph) {
-  const svg = document.getElementById('graph-svg');
-  const width = svg.clientWidth || 600;
-  const height = svg.clientHeight || 400;
-  while (svg.firstChild) svg.removeChild(svg.firstChild);
-
-  if (!graph || !graph.nodes || !graph.nodes.length) {
-    return;
-  }
-
-  const nodes = graph.nodes;
-  const edges = graph.edges || [];
-  const cx = width / 2, cy = height / 2;
-  const radius = Math.min(width, height) / 2 - 40;
-
-  // Position nodes on a circle
-  nodes.forEach((n, i) => {
-    const angle = 2 * Math.PI * i / nodes.length;
-    n._x = cx + radius * Math.cos(angle);
-    n._y = cy + radius * Math.sin(angle);
-  });
-
-  // Draw edges
-  edges.forEach(e => {
-    const src = nodes.find(n => n.id === e.source);
-    const dst = nodes.find(n => n.id === e.target);
-    if (!src || !dst) return;
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", src._x);
-    line.setAttribute("y1", src._y);
-    line.setAttribute("x2", dst._x);
-    line.setAttribute("y2", dst._y);
-    line.setAttribute("stroke", "#4b5563");
-    line.setAttribute("stroke-width", "1");
-    svg.appendChild(line);
-  });
-
-  // Draw nodes with state-based colors
-  nodes.forEach(n => {
-    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-
-    let fill = "#1d4ed8"; // default: blue
-    if (n.state === "owned_high_value") {
-      fill = "#dc2626"; // red
-    } else if (n.state === "owned") {
-      fill = "#22c55e"; // green
-    } else if (n.state === "high_value" || n.high_value) {
-      fill = "#f97316"; // orange
-    }
-
-    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    circle.setAttribute("cx", n._x);
-    circle.setAttribute("cy", n._y);
-    circle.setAttribute("r", 10);
-    circle.setAttribute("fill", fill);
-    group.appendChild(circle);
-
-    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("x", n._x + 12);
-    text.setAttribute("y", n._y + 4);
-    text.setAttribute("font-size", "10");
-    text.setAttribute("fill", "#e5e7eb");
-    text.textContent = n.name || n.label || n.id;
-    group.appendChild(text);
-
-    svg.appendChild(group);
-  });
-
-  const hv = nodes.filter(n => n.state === "high_value" || n.state === "owned_high_value" || n.high_value);
-  const owned = nodes.filter(n => n.state === "owned" || n.state === "owned_high_value" || n.owned);
-  const ownedHV = nodes.filter(n => n.state === "owned_high_value");
-
-  let html = '<p><strong>AD graph:</strong> ' + nodes.length + ' nodes, ' +
-             edges.length + ' edges.</p>';
-  html += '<p><strong>High-value nodes:</strong> ' + hv.length +
-          ' | <strong>Owned nodes:</strong> ' + owned.length +
-          ' | <strong>Owned & high-value:</strong> ' + ownedHV.length + '</p>';
-  if (ownedHV.length) {
-    html += '<p><strong>Owned high-value nodes:</strong></p><ul>';
-    ownedHV.forEach(n => {
-      html += '<li>' + (n.name || n.id) + ' [' + (n.label || '') + ']</li>';
-    });
-    html += '</ul>';
-  }
-  html += '<p>Legend: <span style="color:#22c55e;">green</span> = owned, ' +
-          '<span style="color:#f97316;">orange</span> = high-value, ' +
-          '<span style="color:#dc2626;">red</span> = owned & high-value, ' +
-          'blue = other.</p>';
-
-  document.getElementById('summary').innerHTML = html;
-}
-
-// Credentials & sessions GUI
-
-async function loadCredentials() {
-  const eng = document.getElementById('creds-engagement').value.trim();
-  let url = '/api/credentials';
-  if (eng) url += '?engagement=' + encodeURIComponent(eng);
-  const res = await fetch(url);
+// Credentials
+async function loadCreds() {
+  const res = await fetch('/api/creds');
   if (!res.ok) return;
   const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  const tbody = document.querySelector('#creds-table tbody');
+  const tbody = document.querySelector('#creds tbody');
   tbody.innerHTML = '';
   data.forEach(c => {
-    const tr = document.createElement('tr');
-    const accountTd = document.createElement('td');
-    accountTd.textContent = c.account || '';
-    const typeTd = document.createElement('td');
-    typeTd.textContent = c.type || '';
-    const hostTd = document.createElement('td');
-    hostTd.textContent = c.host || '';
-    const tagsTd = document.createElement('td');
-    tagsTd.textContent = (c.tags || []).join(', ');
-    const firstSeenTd = document.createElement('td');
-    firstSeenTd.textContent = c.first_seen || '';
-    tr.appendChild(accountTd);
-    tr.appendChild(typeTd);
-    tr.appendChild(hostTd);
-    tr.appendChild(tagsTd);
-    tr.appendChild(firstSeenTd);
-    tbody.appendChild(tr);
-  });
-
-  let html = '<p><strong>Captured credentials:</strong> ' + data.length + '</p>';
-  document.getElementById('summary').innerHTML = html;
-}
-
-async function loadCompromisedAccounts() {
-  const eng = document.getElementById('accounts-engagement').value.trim();
-  let url = '/api/credentials';
-  if (eng) url += '?engagement=' + encodeURIComponent(eng);
-  const res = await fetch(url);
-  if (!res.ok) return;
-  const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  const byAccount = {};
-  data.forEach(c => {
-    const acct = c.account || '(unknown)';
-    if (!byAccount[acct]) {
-      byAccount[acct] = {
-        types: new Set(),
-        count: 0,
-        hosts: new Set()
-      };
-    }
-    byAccount[acct].count++;
-    if (c.type) byAccount[acct].types.add(c.type);
-    if (c.host) byAccount[acct].hosts.add(c.host);
-  });
-
-  const tbody = document.querySelector('#accounts-table tbody');
-  tbody.innerHTML = '';
-
-  Object.keys(byAccount).forEach(acct => {
-    const entry = byAccount[acct];
-    const tr = document.createElement('tr');
-    const accountTd = document.createElement('td');
-    accountTd.textContent = acct;
-    const typesTd = document.createElement('td');
-    typesTd.textContent = Array.from(entry.types).join(', ');
-    const countTd = document.createElement('td');
-    countTd.textContent = String(entry.count);
-    const hostsTd = document.createElement('td');
-    hostsTd.textContent = Array.from(entry.hosts).join(', ');
-    tr.appendChild(accountTd);
-    tr.appendChild(typesTd);
-    tr.appendChild(countTd);
-    tr.appendChild(hostsTd);
-    tbody.appendChild(tr);
-  });
-
-  let html = '<p><strong>Compromised accounts:</strong> ' + Object.keys(byAccount).length + '</p>';
-  document.getElementById('summary').innerHTML = html;
-}
-
-async function loadSessions() {
-  const eng = document.getElementById('sessions-engagement').value.trim();
-  let url = '/api/sessions';
-  if (eng) url += '?engagement=' + encodeURIComponent(eng);
-  const res = await fetch(url);
-  if (!res.ok) return;
-  const data = await res.json();
-  document.getElementById('preview').textContent = JSON.stringify(data, null, 2);
-
-  const tbody = document.querySelector('#sessions-table tbody');
-  tbody.innerHTML = '';
-  data.forEach(s => {
     const tr = document.createElement('tr');
     const userTd = document.createElement('td');
-    userTd.textContent = s.user || '';
-    const hostTd = document.createElement('td');
-    hostTd.textContent = s.host || '';
-    const firstTd = document.createElement('td');
-    firstTd.textContent = s.first_seen || '';
-    const lastTd = document.createElement('td');
-    lastTd.textContent = s.last_seen || '';
+    userTd.textContent = c.username || '';
+    const domTd = document.createElement('td');
+    domTd.textContent = c.domain || '';
+    const typeTd = document.createElement('td');
+    typeTd.textContent = c.type || '';
     const srcTd = document.createElement('td');
-    srcTd.textContent = s.source_tool || '';
+    srcTd.textContent = c.source || '';
+    const hostTd = document.createElement('td');
+    hostTd.textContent = c.host || '';
     tr.appendChild(userTd);
-    tr.appendChild(hostTd);
-    tr.appendChild(firstTd);
-    tr.appendChild(lastTd);
+    tr.appendChild(domTd);
+    tr.appendChild(typeTd);
     tr.appendChild(srcTd);
+    tr.appendChild(hostTd);
     tbody.appendChild(tr);
   });
+}
 
-  let html = '<p><strong>User sessions:</strong> ' + data.length + '</p>';
-  document.getElementById('summary').innerHTML = html;
+async function importCreds() {
+  const raw = document.getElementById('creds-json').value.trim();
+  if (!raw) return;
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (e) {
+    alert('Credentials JSON is invalid');
+    return;
+  }
+  const res = await fetch('/api/creds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    alert('Error importing creds: ' + text);
+    return;
+  }
+  await loadCreds();
+}
+
+// Hosts & PrivEsc
+async function loadHosts() {
+  const res = await fetch('/api/hosts');
+  if (!res.ok) return;
+  const data = await res.json();
+  const tbody = document.querySelector('#hosts tbody');
+  tbody.innerHTML = '';
+  data.forEach(h => {
+    const tr = document.createElement('tr');
+    const nameTd = document.createElement('td'); nameTd.textContent = h.name || '';
+    const osTd = document.createElement('td'); osTd.textContent = h.os || '';
+    const domTd = document.createElement('td'); domTd.textContent = h.domain || '';
+    const tagsTd = document.createElement('td'); tagsTd.textContent = (h.tags || []).join(', ');
+    tr.appendChild(nameTd); tr.appendChild(osTd); tr.appendChild(domTd); tr.appendChild(tagsTd);
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadPrivesc() {
+  const res = await fetch('/api/privesc');
+  if (!res.ok) return;
+  const data = await res.json();
+  const tbody = document.querySelector('#hints tbody');
+  tbody.innerHTML = '';
+  data.forEach(h => {
+    const tr = document.createElement('tr');
+    const hostTd = document.createElement('td'); hostTd.textContent = h.host || '';
+    const sevTd = document.createElement('td'); sevTd.textContent = h.severity || '';
+    const titleTd = document.createElement('td'); titleTd.textContent = h.title || '';
+    const catTd = document.createElement('td'); catTd.textContent = h.category || '';
+    tr.appendChild(hostTd);
+    tr.appendChild(sevTd);
+    tr.appendChild(titleTd);
+    tr.appendChild(catTd);
+    tbody.appendChild(tr);
+  });
+}
+
+async function importHosts() {
+  const raw = document.getElementById('hosts-json').value.trim();
+  if (!raw) return;
+  let payload;
+  try { payload = JSON.parse(raw); } catch (e) { alert('Hosts JSON invalid'); return; }
+  const res = await fetch('/api/hosts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    alert('Error importing hosts: ' + text);
+    return;
+  }
+  loadHosts();
+}
+
+async function importPrivesc() {
+  const raw = document.getElementById('privesc-json').value.trim();
+  if (!raw) return;
+  let payload;
+  try { payload = JSON.parse(raw); } catch (e) { alert('Privesc JSON invalid'); return; }
+  const res = await fetch('/api/privesc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    alert('Error importing privesc hints: ' + text);
+    return;
+  }
+  loadPrivesc();
 }
 
 // Summary renderer for ReconResult or Job{result}
@@ -1896,6 +1251,9 @@ function renderSummary(obj) {
 
 loadJobs();
 loadResults();
+loadCreds();
+loadHosts();
+loadPrivesc();
 </script>
 </body>
 </html>`
