@@ -93,6 +93,13 @@ type NetworkExposure struct {
     Target string `json:"target"`
     Output string `json:"output"`
 }
+// WebScreenshot represents a screenshot plus some metadata for a URL.
+type WebScreenshot struct {
+    URL           string `json:"url"`
+    ScreenshotPath string `json:"screenshot_path"`
+    Title         string `json:"title,omitempty"`
+    FaviconHash   string `json:"favicon_hash,omitempty"`
+}
 
 // Enum4linuxResult contains parsed output from enum4linux-ng.
 type Enum4linuxResult struct {
