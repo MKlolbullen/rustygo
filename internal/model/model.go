@@ -55,6 +55,44 @@ type ReconResult struct {
 	HTTP       []HTTPService `json:"http"`
 	Vulns      []VulnFinding `json:"vulns"`
 }
+// HTTPBruteResult represents a single result from ffuf/feroxbuster discovery.
+type HTTPBruteResult struct {
+    Tool       string   `json:"tool"`
+    URL        string   `json:"url"`
+    StatusCode int      `json:"status_code"`
+    Length     int      `json:"length,omitempty"`
+    Words      int      `json:"words,omitempty"`
+    Lines      int      `json:"lines,omitempty"`
+    Method     string   `json:"method,omitempty"`
+    Tags       []string `json:"tags,omitempty"`
+}
+
+// WebTechInfo aggregates technology fingerprinting for a URL.
+type WebTechInfo struct {
+    URL          string                 `json:"url"`
+    Technologies []string               `json:"technologies"`
+    Raw          map[string]interface{} `json:"raw,omitempty"`
+}
+
+// FaviconInfo describes a favicon hash and optional saved path.
+type FaviconInfo struct {
+    URL      string `json:"url"`
+    Hash     string `json:"hash"`
+    IconPath string `json:"icon_path,omitempty"`
+}
+
+// CSPInfo represents a parsed Content-Security-Policy.
+type CSPInfo struct {
+    URL        string              `json:"url"`
+    Directives map[string][]string `json:"directives,omitempty"`
+    Raw        string              `json:"raw,omitempty"`
+}
+
+// NetworkExposure describes output from tools like nextnet.
+type NetworkExposure struct {
+    Target string `json:"target"`
+    Output string `json:"output"`
+}
 
 // Enum4linuxResult contains parsed output from enum4linux-ng.
 type Enum4linuxResult struct {
