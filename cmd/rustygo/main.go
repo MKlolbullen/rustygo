@@ -10,7 +10,8 @@ import (
     "path/filepath"
     "strings"
     "time"
-
+    "github.com/joho/godotenv"
+    
     "github.com/MKlolbullen/rustygo/internal/config"
     "github.com/MKlolbullen/rustygo/internal/c2"
     "github.com/MKlolbullen/rustygo/internal/pipeline"
@@ -20,6 +21,8 @@ import (
 )
 
 func main() {
+    // Load .env if present, ignore errors if not present
+    _ = godotenv.Load()
     log.SetFlags(0)
     if len(os.Args) < 2 {
         usage()
