@@ -23,7 +23,7 @@ type ToolPaths struct {
     Favirecon   string `json:"favirecon"`
     Csprecon    string `json:"csprecon"`
     Nextnet     string `json:"nextnet"`
-
+	ScreenshotTool string `json:"screenshot_tool"` // e.g. gowitness
 	// Windows / AD / network tools
 	Enum4linux string `json:"enum4linux_ng"` // enum4linux-ng
 	Nbtstat    string `json:"nbtstat"`       // nbtstat or nbtscan
