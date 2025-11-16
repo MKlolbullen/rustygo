@@ -9,13 +9,20 @@ import (
 
 // ToolPaths holds absolute paths to external binaries. If empty, PATH will be used.
 type ToolPaths struct {
-	// Existing recon tools
-	Subfinder   string `json:"subfinder"`
-	Assetfinder string `json:"assetfinder"`
-	Dnsx        string `json:"dnsx"`
-	Httpx       string `json:"httpx"`
-	Naabu       string `json:"naabu"`
-	Nuclei      string `json:"nuclei"`
+    Subfinder   string `json:"subfinder"`
+    Assetfinder string `json:"assetfinder"`
+    Dnsx        string `json:"dnsx"`
+    Httpx       string `json:"httpx"`
+    Naabu       string `json:"naabu"`
+    Nuclei      string `json:"nuclei"`
+
+    // Web discovery / recon
+    Ffuf        string `json:"ffuf"`
+    Feroxbuster string `json:"feroxbuster"`
+    Whatweb     string `json:"whatweb"`
+    Favirecon   string `json:"favirecon"`
+    Csprecon    string `json:"csprecon"`
+    Nextnet     string `json:"nextnet"`
 
 	// Windows / AD / network tools
 	Enum4linux string `json:"enum4linux_ng"` // enum4linux-ng
@@ -27,12 +34,13 @@ type ToolPaths struct {
 	// LDAP / directory
 	Ldapsearch string `json:"ldapsearch"`
 
-	// C2 tooling
-	HavocClient string `json:"havoc_client"`
-
+    // C2 clients (already added earlier)
+    HavocClient string `json:"havoc_client"`
 	// Metasploit
 	Msfconsole string `json:"msfconsole"`
 }
+
+
 
 // APIKeys holds API credentials and URLs for various services.
 type APIKeys struct {
