@@ -1,0 +1,303 @@
+:root {
+  color-scheme: dark;
+  --bg: #020617;
+  --bg-elevated: #020617;
+  --border: #1f2937;
+  --border-strong: #334155;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --accent: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Navbar */
+
+.navbar {
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #020617;
+}
+
+.navbar-title {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.navbar-status {
+  font-size: 13px;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.pill-running {
+  background: #16a34a33;
+  border: 1px solid #16a34a;
+  color: #bbf7d0;
+}
+
+.pill-idle {
+  background: #1f2937;
+  border: 1px solid #4b5563;
+  color: #e5e7eb;
+}
+
+/* Main layout */
+
+.app-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 20% 1px 1fr 1px 20%;
+  grid-template-rows: 1fr;
+  min-height: 0;
+}
+
+/* Panels */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+}
+
+.panel-left {
+  border-right: none;
+}
+
+.panel-right {
+  border-left: none;
+}
+
+.panel-title {
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+/* Tool panel */
+
+.tool-category {
+  margin-bottom: 10px;
+}
+
+.tool-category-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.tool-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tool-item {
+  padding: 6px 8px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.tool-item:hover {
+  background: #020617;
+  border-color: var(--border);
+}
+
+.tool-item-selected {
+  background: #0b1120;
+  border-color: var(--accent);
+}
+
+.tool-label {
+  font-size: 13px;
+}
+
+.tool-desc {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Center column */
+
+.center-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Vertical separators */
+
+.divider-vertical {
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.divider-vertical.left {
+  border-right: none;
+}
+
+.divider-vertical.right {
+  border-left: none;
+}
+
+/* Graph + console */
+
+.graph-canvas {
+  flex: 1;
+  min-height: 0;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+/* Horizontal divider is just the border above console, but keep an element for semantics */
+
+.divider-horizontal {
+  display: none; /* handled by border-bottom on graph-canvas */
+}
+
+/* Console */
+
+.console-panel {
+  height: 20%;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  background: #020617;
+}
+
+.console-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.console-tab {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.console-tab-active {
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
+
+.console-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.console-pre,
+.console-textarea {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  background: #020617;
+  border: none;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  font-size: 12px;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+/* Args panel */
+
+.args-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.args-tool-name {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.args-tool-desc {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.args-label {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.args-input {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #020617;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.args-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.args-run-button {
+  margin-top: 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: #0f172a;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.args-run-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
